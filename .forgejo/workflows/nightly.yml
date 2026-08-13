@@ -1,0 +1,57 @@
+# Nightly corpus run for psstools/sphinx-pss.
+#
+# The `corpus` marker is opt-in (pyproject.toml deselects it by default) because
+# it runs the model over the pssparser test corpus and the PSS standard library
+# and is slow. It is also the check most likely to surface an upstream parser
+# change, so it runs every night against whatever pssparser's default branch
+# currently is -- deliberately unpinned, so drift shows up here rather than in
+# somebody's build.
+name: Nightly corpus
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+env:
+  PY: /opt/python/cp312-cp312/bin/python
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    container:
+      image: dvkit/pssparser-ci:manylinux_2_28-x86_64
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure ivpm dependency resolution
+      run: |
+        mkdir -p ~/.config/ivpm
+        cat > ~/.config/ivpm/config.yaml <<'EOF'
+        git-url-map:
+          - from: "https://github.com/mballance-utils/"
+            to:   "https://git.dvkit.org/mballance-utils/"
+          - from: "https://github.com/psstools/"
+            to:   "https://git.dvkit.org/psstools/"
+          - from: "https://github.com/fvutils/"
+            to:   "https://git.dvkit.org/fvutils/"
+        git-auth:
+          - host: "git.dvkit.org"
+            order: ["https"]
+        EOF
+
+    - name: Fetch and build dependencies
+      run: |
+        export IVPM_PYTHON=${PY}
+        ${IVPM_PYTHON} -m ivpm update -j 1 -a
+
+    - name: Install sphinx-pss
+      run: |
+        . packages/python/bin/activate
+        pip install -e .[test,docs] --no-build-isolation
+
+    - name: Run the full suite including the corpus
+      run: |
+        . packages/python/bin/activate
+        python -m pytest -m "unit or sphinx or upstream or corpus" -q --tb=short

@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sphinx-pss"
+version = "0.0.1"
+description = "Sphinx autodoc support for Accellera PSS (Portable Test and Stimulus Standard) source"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [
+    { name = "Matthew Ballance", email = "matt.ballance@gmail.com" },
+]
+keywords = ["sphinx", "pss", "portable-stimulus", "documentation", "accellera"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Sphinx :: Extension",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Documentation :: Sphinx",
+]
+dependencies = [
+    "sphinx>=8.0",
+    # Installer advice, not the run-time gate. pssparser versions as
+    # <PSS major>.<PSS minor>.<patch>, so the number names the LRM revision
+    # targeted rather than any capability; what this project actually needs is
+    # the doc-comment rework, asserted at run time. Kept a floor rather than a
+    # pin so a parser retargeted to a newer LRM still resolves.
+    # See docs/design/pssparser-followup-plan.md section 4.
+    "pssparser>=3.0.3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "beautifulsoup4",
+]
+docs = [
+    "myst-parser",
+    "furo",
+]
+
+[project.urls]
+Homepage = "https://github.com/psstools/sphinx-pss"
+Documentation = "https://github.com/psstools/sphinx-pss"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sphinx_pss = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: pure-Python tests with no Sphinx application",
+    "sphinx: integration tests driving a Sphinx build over tests/roots/",
+    "corpus: slow tests over the pssparser corpus and the PSS standard library (opt-in)",
+    "upstream: asserts a pssparser behavior sphinx-pss depends on; a failure, not a skip",
+]
+addopts = "-m 'not corpus'"

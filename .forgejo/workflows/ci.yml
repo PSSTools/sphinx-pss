@@ -1,0 +1,108 @@
+# CI for psstools/sphinx-pss on Forgejo Actions.
+#
+# Ported from psstools/pssparser's workflow, and the same two constraints apply:
+#
+#  1. No third-party actions. A bare `uses:` resolves against code.forgejo.org
+#     (Forgejo's DEFAULT_ACTIONS_URL), not github.com.
+#  2. Dependencies resolve from git.dvkit.org, not github.com.
+#
+# The cost question this project had to settle (implementation-plan section 10):
+# pssparser is a C++/Cython extension, so it cannot be pip-installed as a pure
+# wheel. Resolved by **building it from source in the pssparser CI container**,
+# which already carries the ANTLR jar, the C++ toolchain and every interpreter.
+# That costs a few minutes per run and needs no artifact plumbing between repos.
+# If it becomes the bottleneck, the next step is consuming pssparser's published
+# wheel rather than adding a cache -- a cache keyed on a moving upstream branch
+# would go stale silently, which is the failure mode this project can least
+# afford.
+name: CI
+
+on:
+  - push
+  - pull_request
+  - workflow_dispatch
+
+env:
+  PY: /opt/python/cp312-cp312/bin/python
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: dvkit/pssparser-ci:manylinux_2_28-x86_64
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check for internal identifiers in tracked files
+      # This repo is published, so anything committed here is public. Internal
+      # host names, tailnet addresses and CGNAT-range IPs must not appear in
+      # tracked files; if a build ever needs one, it belongs in a repository
+      # secret, which is masked in logs.
+      run: |
+        pattern='\.ts\.net|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+'
+        if git grep -nIE "$pattern" -- . ':!.forgejo/workflows/ci.yml' ; then
+          echo "::error::internal identifier found in a tracked file (see matches above)"
+          exit 1
+        fi
+        echo "OK: no internal identifiers in tracked files"
+
+    - name: Configure ivpm dependency resolution
+      # ivpm.yaml names git.dvkit.org already, but dependencies-of-dependencies
+      # (pyastbuilder, and pssparser's own deps) name github.com. Remap them so
+      # the build does not depend on GitHub.
+      run: |
+        mkdir -p ~/.config/ivpm
+        cat > ~/.config/ivpm/config.yaml <<'EOF'
+        git-url-map:
+          - from: "https://github.com/mballance-utils/"
+            to:   "https://git.dvkit.org/mballance-utils/"
+          - from: "https://github.com/psstools/"
+            to:   "https://git.dvkit.org/psstools/"
+          - from: "https://github.com/fvutils/"
+            to:   "https://git.dvkit.org/fvutils/"
+        git-auth:
+          - host: "git.dvkit.org"
+            order: ["https"]
+        EOF
+
+    - name: Fetch and build dependencies
+      # This builds pssparser's native core and Cython extensions into
+      # packages/python. It is the expensive step, and the reason this job runs
+      # in the pssparser CI container rather than a bare ubuntu image.
+      run: |
+        export IVPM_PYTHON=${PY}
+        ${IVPM_PYTHON} -m ivpm update -j 1 -a
+
+    - name: Install sphinx-pss
+      run: |
+        . packages/python/bin/activate
+        pip install -e .[test,docs] --no-build-isolation
+
+    - name: Verify the pssparser floor is met
+      # sphinx-pss asserts pssparser >= 3.1.0 at import. Checking it as its own
+      # step means a floor violation reports as itself rather than as a wall of
+      # collection errors.
+      run: |
+        . packages/python/bin/activate
+        python -c "from sphinx_pss._version_floor import check_pssparser_version as c; print('pssparser', c())"
+
+    - name: Run the test suite
+      run: |
+        . packages/python/bin/activate
+        python -m pytest -m "unit or sphinx or upstream" -q --tb=short
+
+    - name: Build the documentation
+      # -W so documentation rot fails the build. The docs dogfood the extension
+      # on the test fixtures, which makes this the broadest integration check
+      # in the workflow.
+      run: |
+        . packages/python/bin/activate
+        python -m sphinx -W -b html docs docs/_build/html
+
+    - name: Upload documentation
+      uses: forgejo/upload-artifact@v4
+      with:
+        name: docs-sphinx-pss
+        path: docs/_build/html/**
+        if-no-files-found: error

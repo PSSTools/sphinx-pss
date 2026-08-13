@@ -1,0 +1,35 @@
+package:
+  name: sphinx-pss
+
+  dep-sets:
+  - name: default
+    deps:
+    - name: pssparser
+      url: https://git.dvkit.org/psstools/pssparser.git
+    - name: sphinx
+      src: pypi
+    # Documentation build.
+    - name: myst-parser
+      src: pypi
+    - name: furo
+      src: pypi
+    # Test suite.
+    - name: pytest
+      src: pypi
+    - name: beautifulsoup4
+      src: pypi
+
+  - name: default-dev
+    deps:
+    - name: pssparser
+      url: https://git.dvkit.org/psstools/pssparser.git
+    - name: sphinx
+      src: pypi
+    - name: myst-parser
+      src: pypi
+    - name: furo
+      src: pypi
+    - name: pytest
+      src: pypi
+    - name: beautifulsoup4
+      src: pypi

@@ -1,0 +1,35 @@
+// Cross-file extension of dma_pkg (P1-TEST-2).
+//
+// Idiomatic PSS spreads a type across files, and the linker merges the result
+// into one type. That makes the linked tree the right documentation view, but
+// it also means a reader cannot tell where a member came from unless the
+// documentation says so -- which is what the provenance test asserts against
+// this file.
+
+package dma_ext_pkg {
+    import dma_pkg::*;
+
+    // Add scheduling priority to every transfer.
+    //
+    // Declared here rather than in dma_pkg because priority is a property of
+    // this integration, not of the DMA controller itself.
+    extend action dma_pkg::Dma::Xfer {
+        // Scheduling priority for this transfer; higher runs first.
+        rand int prio;
+
+        // Whether this transfer may be preempted.
+        bool preemptible;
+
+        // Priority is a small non-negative number.
+        constraint c_prio_range {
+            prio >= 0;
+            prio < 16;
+        }
+    }
+
+    // Record how much of the buffer was actually consumed.
+    extend buffer dma_pkg::DmaBuf {
+        // Bytes the consumer read; at most the size the producer wrote.
+        rand int consumed;
+    }
+}

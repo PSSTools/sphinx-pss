@@ -1,0 +1,177 @@
+// The canonical sample model for sphinx-pss (P1-TEST-1).
+//
+// It is deliberately small but covers one of everything Phase 1 documents:
+// a package, a component with actions, flow-object references, a resource
+// claim, each flow-object kind, a plain struct, an enum, named constraints, a
+// function, and both `rand` and plain attribute fields -- every one carrying a
+// native doc comment.
+//
+// The published documentation renders this file (docs/examples/sample.md), so
+// it doubles as the project's worked example. Keep the prose worth reading.
+
+// A small DMA subsystem: a controller component, the buffers it moves, and
+// the actions that drive it.
+//
+// The package exists to give the sample a qualified-name root, so every
+// object in the test suite is addressable as ``dma_pkg::...``.
+package dma_pkg {
+
+    // How a transfer addresses its endpoints.
+    enum AddrMode {
+        // Address advances by the element size after each beat.
+        INCREMENT,
+        // Every beat targets the same address -- a FIFO or register port.
+        FIXED,
+        // Address wraps within a power-of-two aligned region.
+        WRAP
+    }
+
+    // A block of memory handed from one action to the next.
+    //
+    // The producing action fills it; the consuming action reads it. The buffer
+    // carries the size so a consumer does not have to be told separately.
+    buffer DmaBuf {
+        // Number of bytes the producer wrote.
+        rand int size;
+
+        // Address the block was staged at.
+        rand int addr;
+
+        // Sizes are word multiples and never zero.
+        constraint c_size_valid {
+            size > 0;
+            size % 4 == 0;
+        }
+    }
+
+    // A continuous flow of samples through the DMA engine.
+    //
+    // Unlike a buffer, a stream has no completion point: producer and consumer
+    // run concurrently for as long as the traversal lasts.
+    stream SampleFlow {
+        // Samples per second the producer will sustain.
+        rand int rate;
+    }
+
+    // Whether the engine has been configured since reset.
+    //
+    // Actions that require configuration take this as an input and leave it
+    // updated on their output.
+    state EngineState {
+        // True once a Configure action has run.
+        rand bool configured;
+
+        // The mode the engine was last configured for.
+        rand AddrMode mode;
+    }
+
+    // Exclusive access to one DMA channel.
+    //
+    // Claimed with `lock` by any action that programs a transfer, so two
+    // transfers can never be in flight on the same channel.
+    resource DmaChannel {
+        // Priority the channel arbitrates at; higher wins.
+        rand int priority;
+    }
+
+    // A source/destination address pair.
+    //
+    // A plain struct: it is data passed by value, not a flow object, so it
+    // participates in constraints rather than in the action graph.
+    struct AddrPair {
+        // Where the transfer reads from.
+        rand int src;
+
+        // Where the transfer writes to.
+        rand int dst;
+
+        // Source and destination never alias.
+        constraint c_no_alias {
+            src != dst;
+        }
+    }
+
+    // The DMA controller.
+    //
+    // Instantiating this component makes its actions available to the test
+    // realization and gives them somewhere to keep shared configuration.
+    component Dma {
+
+        // Number of independent channels this instance implements.
+        static const int num_channels = 4;
+
+        // Pool of channels the actions arbitrate for.
+        pool DmaChannel channel_p;
+
+        // Every action in this component claims from the shared pool.
+        bind channel_p {*};
+
+        // Round a byte count up to the next word boundary.
+        //
+        // :param n: the byte count to round
+        function int align_up(int n) {
+            return (n + 3) & ~3;
+        }
+
+        // Configure the engine's addressing mode.
+        //
+        // Must run before any transfer; the state output is what enforces
+        // that ordering in the scheduling graph.
+        action Configure {
+            // The engine state this action establishes.
+            output EngineState out_s;
+
+            // Mode the engine is left in.
+            rand AddrMode mode;
+        }
+
+        // Program a single DMA transfer.
+        //
+        // Claims a channel for the duration of the transfer and produces a
+        // filled buffer for a downstream consumer. The transfer is
+        // indivisible: nothing else may use the channel until it completes.
+        //
+        // :realizes: a single descriptor-driven engine transfer
+        // :group: Transfers
+        // :req: DMA-014, DMA-015
+        action Xfer {
+            // The configured engine; the transfer cannot run before Configure.
+            input EngineState in_s;
+
+            // The filled destination buffer.
+            output DmaBuf out_b;
+
+            // Exclusive claim on the channel doing the work.
+            lock DmaChannel chan;
+
+            // Transfer length in bytes.
+            rand int len;
+
+            // Endpoints of the transfer.
+            rand AddrPair addrs;
+
+            // Whether to raise an interrupt on completion.
+            bool notify;
+
+            // Transfers are word-aligned and never empty.
+            constraint c_len_aligned {
+                len > 0;
+                len % 4 == 0;
+            }
+
+            // A single transfer never exceeds one page.
+            constraint c_len_bounded {
+                len <= 4096;
+            }
+        }
+
+        // Consume a buffer produced by a transfer.
+        //
+        // The mirror of Xfer: it takes the buffer as an input, which is what
+        // makes the two actions schedulable as a producer/consumer pair.
+        action Check {
+            // The buffer to verify.
+            input DmaBuf in_b;
+        }
+    }
+}
