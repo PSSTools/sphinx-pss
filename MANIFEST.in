@@ -1,0 +1,3 @@
+# CHANGELOG is not picked up automatically; README and LICENSE are. Shipping
+# it means an sdist can answer "what changed" without the repository.
+include CHANGELOG.md

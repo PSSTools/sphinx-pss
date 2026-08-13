@@ -30,20 +30,8 @@ usage/directives
 examples/sample
 ```
 
-```{toctree}
-:maxdepth: 1
-:caption: Design
-
-design/index
-```
-
 ## Project status
 
-Early development. The design and the phased build plan are the most complete
-documents in the set:
-
-- {doc}`design/sphinx-pss-design` — the approach, the object model, and the
-  PSS-specific capabilities that motivate the project.
-- {doc}`design/implementation-plan` — phases, work items, and their status.
-- {doc}`design/pssparser-enhancement-plan` — the upstream `pssparser`
-  doc-comment work this project depends on.
+Early development. Design notes and the phased build plan live in `design/` in
+the repository — they are working documents rather than documentation, so they
+are not published here.

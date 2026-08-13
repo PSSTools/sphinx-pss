@@ -80,7 +80,7 @@ jobs:
         pip install -e .[test,docs] --no-build-isolation
 
     - name: Verify the pssparser floor is met
-      # sphinx-pss asserts pssparser >= 3.1.0 at import. Checking it as its own
+      # sphinx-pss asserts a pssparser floor at import. Checking it as its own
       # step means a floor violation reports as itself rather than as a wall of
       # collection errors.
       run: |

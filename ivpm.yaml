@@ -6,6 +6,11 @@ package:
     deps:
     - name: pssparser
       url: https://git.dvkit.org/psstools/pssparser.git
+    # The PSS Pygments lexer. Registered through a pygments.lexers entry
+    # point, so installing it is the whole configuration step -- this
+    # extension makes no add_lexer call.
+    - name: pygments-pss
+      url: https://git.dvkit.org/psstools/pygments-pss.git
     - name: sphinx
       src: pypi
     # Documentation build.
@@ -23,6 +28,11 @@ package:
     deps:
     - name: pssparser
       url: https://git.dvkit.org/psstools/pssparser.git
+    # The PSS Pygments lexer. Registered through a pygments.lexers entry
+    # point, so installing it is the whole configuration step -- this
+    # extension makes no add_lexer call.
+    - name: pygments-pss
+      url: https://git.dvkit.org/psstools/pygments-pss.git
     - name: sphinx
       src: pypi
     - name: myst-parser

@@ -15,3 +15,8 @@ dist/
 
 # Sphinx
 docs/_build/
+
+# Reference copies of the PSS LRM. Working material, and Accellera's to
+# distribute -- never committed.
+PSS*Draft*.md
+PSS*Draft*.pdf

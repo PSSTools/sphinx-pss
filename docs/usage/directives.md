@@ -1,8 +1,8 @@
 # Directives, roles and configuration
 
-This is the reference for what ships in Phase 1. Flow tables, diagrams,
-activities and the whole-tree front end land in later phases and are described
-in {doc}`../design/implementation-plan`.
+This is the reference for what ships today. Flow tables, diagrams, activities
+and the whole-tree front end land in later phases; this page grows to cover
+them as they do.
 
 ## Autodoc directives
 
@@ -163,9 +163,14 @@ def setup(app):
 
 ## PSS syntax highlighting
 
-The extension registers a Pygments lexer for PSS, so ` ```pss ` code blocks
-highlight in any project that loads it — including projects that use no other
-part of the extension.
+PSS code blocks highlight with no configuration. The lexer lives in
+[`pygments-pss`](https://git.dvkit.org/psstools/pygments-pss.git), which this
+extension depends on; it registers itself through a `pygments.lexers` entry
+point, so Pygments finds it wherever it looks.
+
+That means highlighting does not depend on loading this extension at all —
+`pygmentize -l pss`, MkDocs and plain docutils get the same lexer. A project
+that only wants highlighting can depend on `pygments-pss` alone.
 
 ````markdown
 ```pss

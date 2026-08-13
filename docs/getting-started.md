@@ -2,7 +2,7 @@
 
 ## Install
 
-`sphinx-pss` needs [`pssparser`](https://github.com/psstools/pssparser) 3.1.0 or
+`sphinx-pss` needs [`pssparser`](https://github.com/psstools/pssparser) 3.0.3 or
 later. That is a hard floor rather than a preference: earlier releases cannot
 extract doc comments from attributed fields such as `rand int len`, which are
 the most commonly documented elements in real PSS. The extension checks the
@@ -24,8 +24,12 @@ Verify the install:
 
 ```console
 $ python -c "from sphinx_pss._version_floor import check_pssparser_version as c; print(c())"
-3.1.0
+3.0.3
 ```
+
+Syntax highlighting for `pss` code blocks comes from
+[`pygments-pss`](https://git.dvkit.org/psstools/pygments-pss.git), which
+installs alongside this package and needs no configuration.
 
 ## Minimal `conf.py`
 

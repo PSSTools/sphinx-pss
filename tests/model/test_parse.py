@@ -120,7 +120,7 @@ def test_declaration_index_recovers_package_and_enum_docs(sample_model) -> None:
     against a ``pssparser`` that predates the fix.
 
     The workaround itself is removed once the minimum ``pssparser`` is one
-    that carries the fix; see ``docs/design/pssparser-fixes-plan.md`` (V5).
+    that carries the fix; see ``design/pssparser-fixes-plan.md`` (V5).
     """
     from pssparser.utils import SymbolScopeUtil
 

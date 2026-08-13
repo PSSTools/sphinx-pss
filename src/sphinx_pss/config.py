@@ -1,7 +1,7 @@
 """Configuration values for the ``sphinx_pss`` extension.
 
 Every ``pss_*`` value the extension understands is declared here, in one place,
-so ``__init__.setup`` stays a wiring function. See ``docs/design/sphinx-pss-design.md``
+so ``__init__.setup`` stays a wiring function. See ``design/sphinx-pss-design.md``
 section 7 for the rationale behind each value.
 """
 

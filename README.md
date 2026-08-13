@@ -15,15 +15,25 @@ provenance.
 
 ## Status
 
-Early development. See `docs/design/` for the design and the phased
+Early development. See `design/` for the design and the phased
 implementation plan.
 
 ## Requirements
 
 - Python 3.10+
 - Sphinx 8+
-- `pssparser` 3.1.0 or later (a C++/Cython extension — it must be built, not
+- `pssparser` 3.0.3 or later (a C++/Cython extension — it must be built, not
   merely downloaded)
+- [`pygments-pss`](https://git.dvkit.org/psstools/pygments-pss.git), installed
+  automatically — it provides the `pss` Pygments lexer
+
+## Syntax highlighting
+
+PSS code blocks highlight with no configuration: `pygments-pss` registers the
+`pss` lexer through a `pygments.lexers` entry point, so Pygments finds it
+everywhere it looks. That includes `pygmentize`, MkDocs and plain docutils, not
+only Sphinx — a project that wants highlighting and nothing else can depend on
+`pygments-pss` alone.
 
 ## Quick start
 

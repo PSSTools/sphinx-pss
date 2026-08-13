@@ -2,7 +2,7 @@
 
 ``sphinx-pss`` requires the doc-comment subsystem introduced by
 ``DocCommentExtractor`` / ``DocAnchorScope`` (see
-``docs/design/pssparser-enhancement-plan.md``). Against an older parser, doc
+``design/pssparser-enhancement-plan.md``). Against an older parser, doc
 comments are missing on attributed fields, unrelated comment blocks merge, and
 block comments arrive with ``*`` markers and full source indentation intact.
 
@@ -12,7 +12,7 @@ hard rather than degrading (enhancement-plan section 8).
 .. warning::
 
    **This check is known to be asking the wrong question, and is scheduled for
-   replacement** — see ``docs/design/pssparser-followup-plan.md`` section 4.
+   replacement** — see ``design/pssparser-followup-plan.md`` section 4.
 
    ``pssparser`` versions as ``<PSS major>.<PSS minor>.<patch>``: the first two
    components name the PSS LRM revision the parser targets, and the patch is a
@@ -43,7 +43,7 @@ class PssParserTooOldError(ImportError):
 def _numeric_prefix(version: str) -> tuple[int, ...]:
     """Parse the leading ``N.N.N`` of a version string.
 
-    ``pssparser`` reports development versions such as ``3.1.0+v3.0.2-dirty``,
+    ``pssparser`` reports development versions such as ``3.0.3+v3.0.3-dirty``,
     so everything from the first non-numeric-or-dot character is discarded.
     """
     parts: list[int] = []

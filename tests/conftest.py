@@ -1,6 +1,6 @@
 """Shared pytest fixtures for the sphinx-pss suite.
 
-Marker taxonomy (see docs/design/implementation-plan.md, "Test taxonomy"):
+Marker taxonomy (see design/implementation-plan.md, "Test taxonomy"):
 
 ``unit``      pure Python, no Sphinx application
 ``sphinx``    a real build over a ``tests/roots/`` mini-project

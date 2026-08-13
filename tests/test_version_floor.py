@@ -1,7 +1,7 @@
 """P0-TEST-3 — the ``pssparser`` version floor.
 
 Scheduled for replacement by a capability probe — see
-``docs/design/pssparser-followup-plan.md`` section 4. ``pssparser`` versions as
+``design/pssparser-followup-plan.md`` section 4. ``pssparser`` versions as
 ``<PSS major>.<PSS minor>.<patch>``, so the number names the LRM revision
 targeted rather than any capability, and no floor can express what this project
 actually requires.

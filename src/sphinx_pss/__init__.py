@@ -14,12 +14,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from .__version__ import get_version
 from ._version_floor import check_pssparser_version
 
 if TYPE_CHECKING:
     from sphinx.application import Sphinx
 
-__version__ = "0.0.1"
+__version__ = get_version()
 
 # Fail at import rather than mid-build. See _version_floor for why this is an
 # assertion and not a capability probe.
@@ -31,15 +32,16 @@ def setup(app: Sphinx) -> dict[str, Any]:
     from . import autodoc as _autodoc
     from . import config as _config
     from . import domain as _domain
-    from .lexer import PssLexer
 
     _config.setup(app)
     _domain.setup(app)
     _autodoc.setup(app)
 
-    # Pygments ships no PSS lexer, so ``.. code-block:: pss`` would otherwise
-    # warn (and fail a ``-W`` build) in any project documenting PSS.
-    app.add_lexer("pss", PssLexer)
+    # No ``add_lexer`` call: ``pygments-pss`` registers ``pss`` through a
+    # ``pygments.lexers`` entry point, so Pygments finds it wherever it looks
+    # -- ``pygmentize``, MkDocs and plain docutils included, not only a Sphinx
+    # app that happens to load this extension. Depending on the package is the
+    # whole wiring; see ``design/pssparser-followup-plan.md`` section 5.
 
     return {
         "version": __version__,

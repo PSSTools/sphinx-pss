@@ -1,10 +1,14 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# 77, not 68: `license = "Apache-2.0"` is a PEP 639 license expression only
+# from setuptools 77. Older versions accept the same line as free-text and emit
+# `License:` instead of `License-Expression:`, so the floor is what makes a
+# rebuild from the sdist produce the same metadata as the released wheel.
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "sphinx-pss"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Sphinx autodoc support for Accellera PSS (Portable Test and Stimulus Standard) source"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,6 +33,12 @@ dependencies = [
     # pin so a parser retargeted to a newer LRM still resolves.
     # See docs/design/pssparser-followup-plan.md section 4.
     "pssparser>=3.0.3",
+    # The PSS Pygments lexer. A hard dependency rather than an extra: without
+    # it a ``pss`` code block renders as plain text, and warns -- failing any
+    # ``-W`` build -- in exactly the projects this extension exists to serve.
+    # It registers itself through a ``pygments.lexers`` entry point, so
+    # nothing here calls ``add_lexer``; the dependency *is* the wiring.
+    "pygments-pss>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -42,8 +52,16 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/psstools/sphinx-pss"
-Documentation = "https://github.com/psstools/sphinx-pss"
+# Deliberately only a Homepage, and not a repository link: this project lives
+# on git.dvkit.org, which serves git clones rather than browsable pages, and
+# github.com/psstools/sphinx-pss does not exist. A released version's metadata
+# can never be edited, so a dead link here would be permanent. Add a Source
+# URL when there is a public mirror to point at. (pygments-pss made the same
+# call; pssparser publishes with no project URLs at all.)
+Homepage = "https://accellera.org/downloads/standards/portable-stimulus"
+
+[tool.setuptools.dynamic]
+version = { attr = "sphinx_pss.__version__._pkg_version" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
