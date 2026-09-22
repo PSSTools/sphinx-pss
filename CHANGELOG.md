@@ -27,7 +27,28 @@ project out.
   configuration is needed and highlighting also works outside Sphinx —
   `pygmentize`, MkDocs and plain docutils included.
 
-### Requires
+### License — BSD-3-Clause to Apache-2.0 (2026-09-22)
+
+The `LICENSE` file was BSD-3-Clause while `pyproject.toml` already declared
+`license = "Apache-2.0"`. **Apache-2.0 is the intended and now the actual
+license**, matching every other active project in the organization.
+
+This is a metadata reconciliation rather than a relicensing event, and it is
+recorded here so the history stays legible rather than looking like a silent
+license change later:
+
+- The package has **never been published**, so no released artifact carries the
+  mismatch and nothing downstream was ever obtained under BSD-3-Clause.
+- All three commits to date are by the sole copyright holder, so no contributor
+  consent was required.
+- The old notice read `Copyright (c) 2021, PSSTools`, asserting rights on behalf
+  of an entity that does not exist — psstools is a GitHub organization, not a
+  legal person. Attribution now reads `Copyright 2021 Matthew Ballance and
+  Contributors`, the shared-copyright form used across the organization, and
+  lives in the new `NOTICE` file as Apache-2.0 §4(d) intends.
+
+Also added Apache-2.0 headers to `src/sphinx_pss/**.py`, which previously had
+docstrings but no license header.
 
 - `pssparser` 3.0.3 or later. The floor is hard: the extension checks it at
   import and fails with an explicit message rather than producing documentation
