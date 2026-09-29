@@ -41,6 +41,7 @@ __all__ = [
 
 
 def setup(app) -> None:
+    from . import activity as _activity
     from . import diagrams as _diagrams
     from . import directives as _directives
     from . import documenters as _documenters
@@ -51,4 +52,5 @@ def setup(app) -> None:
     _documenters.setup(app)
     _directives.setup(app)
     _steps.setup(app)
+    _activity.setup(app)
     _diagrams.setup(app)

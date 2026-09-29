@@ -88,3 +88,24 @@ def test_steps_is_not_a_default_option() -> None:
     """Step tables appear only where a page asks (steps design 7.1, plan S3-IMPL-4)."""
     with pytest.raises(PssConfigError, match="'steps' can't be a default"):
         validate_config(None, _config(pss_default_options={"steps": True}))
+
+
+def test_activity_diagram_is_a_valid_default_option() -> None:
+    """Activity-diagrams design 7.2: unlike steps, a diagram can be a project default."""
+    validate_config(
+        None,
+        _config(pss_default_options={"activity-diagram": True, "activity-format": "both", "activity-depth": 2}),
+    )
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"activity-format": "poster"}, r"\['activity-format'\]: 'poster' is not a valid value"),
+        ({"activity-depth": 5}, r"\['activity-depth'\]: 5 is not a valid value; expected a whole number from 1 to 4"),
+        ({"activity-depth": "2"}, r"\['activity-depth'\]: '2' is not a valid value"),
+    ],
+)
+def test_a_bad_activity_default_is_a_config_error(options, message) -> None:
+    with pytest.raises(PssConfigError, match=message):
+        validate_config(None, _config(pss_default_options=options))

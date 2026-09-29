@@ -158,3 +158,70 @@ def check_pssparser() -> str:
         "CHANGELOG. If you are building pssparser from a working tree, check "
         "that it has been rebuilt since those changes landed."
     )
+
+
+# --- optional capabilities --------------------------------------------------------
+#
+# Unlike the doc-comment probe above, these ask about features sphinx-pss can
+# do without: a failing probe turns one feature off, it never stops a build.
+
+#: A step marker on an activity statement (activity-diagrams design 4.7).
+_ACTIVITY_PROBE_SOURCE = """\
+package _sphinx_pss_probe {
+    component C {
+        action A {
+            activity {
+                /// Step: x
+                do A;
+            }
+        }
+    }
+}
+"""
+
+_activity_comments: bool | None = None
+
+
+def activity_comments_supported() -> bool:
+    """True when the installed ``pssparser`` attaches comments to activity statements.
+
+    That is pssparser ``AC1`` (``docs/design/sphinx-pss-requests-2026-09-29.md``
+    there). Without it there are no programming steps in activities. The
+    probe parses a one-statement activity from memory, once per process, and
+    never raises.
+    """
+    global _activity_comments
+    if _activity_comments is None:
+        try:
+            _activity_comments = _probe_activity_comments()
+        except Exception:  # noqa: BLE001 - any failure means "not supported"
+            _activity_comments = False
+    return _activity_comments
+
+
+def _probe_activity_comments() -> bool:
+    from pssparser import Parser
+
+    parser = Parser(collect_docstrings=True, collect_comments=True)
+    parser.parses([("_sphinx_pss_activity_probe.pss", _ACTIVITY_PROBE_SOURCE)])
+    parser.link()
+
+    def find(node):
+        if type(node).__name__ == "ActivityDecl":
+            return node
+        get_children = getattr(node, "getChildren", None)
+        if get_children is None:
+            return None
+        for i in range(len(get_children())):
+            found = find(node.getChild(i))
+            if found is not None:
+                return found
+        return None
+
+    for unit in parser.user_units():
+        activity = find(unit)
+        if activity is not None and len(activity.getChildren()):
+            stmt = activity.getChild(0)
+            count = getattr(stmt, "numComments", None)
+            return bool(count is not None and count() > 0)
+    return False

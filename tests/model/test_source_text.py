@@ -137,3 +137,62 @@ def test_each_file_is_tokenized_once(text) -> None:
     first = text.file(1)
     text.after_keyword(at("match"))
     assert text.file(1) is first
+
+
+# --- activities (activity-diagrams plan AD1-TEST-2) ----------------------------------
+
+ACTIVITY = """\
+activity {
+    parallel join_first ( n + 1 ) { a; b; }
+    schedule join_branch (x, y) { x: a; y: b; }
+    parallel { a; }
+    select {
+        (go && fast) [ 3 ]: a;
+        [w + 1]: { b; }
+        c;
+        (go): d;
+    }
+    do A with { len ==  4;  addr > 0; };
+    do B;
+    constraint { n < 8; }
+}
+"""
+
+
+@pytest.fixture
+def act(tmp_path):
+    path = tmp_path / "a.pss"
+    path.write_text(ACTIVITY)
+    return SourceText({1: str(path)})
+
+
+def act_at(needle: str, nth: int = 0) -> Loc:
+    start = -1
+    for _ in range(nth + 1):
+        start = ACTIVITY.index(needle, start + 1)
+    line = ACTIVITY.count("\n", 0, start) + 1
+    col = start - (ACTIVITY.rfind("\n", 0, start) + 1) + 1
+    return Loc(1, line, col)
+
+
+def test_a_join_spec_is_the_text_before_the_brace(act) -> None:
+    assert act.between_keyword_and_brace(act_at("parallel")) == "join_first ( n + 1 )"
+    assert act.between_keyword_and_brace(act_at("schedule")) == "join_branch (x, y)"
+    assert act.between_keyword_and_brace(act_at("parallel", 1)) is None
+
+
+def test_a_select_arm_gives_its_guard_and_weight(act) -> None:
+    assert act.select_arm(act_at("a;", 3)) == ("go && fast", "3")
+    assert act.select_arm(act_at("{ b; }")) == (None, "w + 1")
+    assert act.select_arm(act_at("c;")) == (None, None)
+    assert act.select_arm(act_at("d;")) == ("go", None)
+
+
+def test_a_with_clause_is_its_constraints(act) -> None:
+    assert act.with_clause(act_at("do A")) == "len ==  4;  addr > 0;"
+    assert act.with_clause(act_at("do B")) is None
+
+
+def test_braced_after_is_the_first_brace_pair(act) -> None:
+    assert act.braced_after(act_at("constraint")) == "n < 8;"
+    assert act.braced_after(act_at("do B")) is None

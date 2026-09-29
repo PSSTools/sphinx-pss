@@ -64,8 +64,9 @@ calls it, and each row's Source is the line of its marker.
 
 ### Where a marker can go
 
-Inside a function body or an `exec` block, at any depth: above a statement,
-after a statement on its line, or above it with a blank line between.
+Inside a function body, an `exec` block or an
+{ref}`activity <steps-in-activities>`, at any depth: above a statement, after a
+statement on its line, or above it with a blank line between.
 
 ```{code-block} pss
 :name: step-example-valid-placements
@@ -123,11 +124,13 @@ description and before its members. They take the same options:
 
 | Option | Values |
 |---|---|
-| `:exec:` | Required when the target is a type: `body`, `init_down`, `init_up`, `pre_solve`, `post_solve`, `pre_body`, `run_start` or `run_end`. Not allowed for a function |
+| `:exec:` | Required when the target is a type, except a compound action, whose steps without `:exec:` are its activity's: `body`, `init_down`, `init_up`, `pre_solve`, `post_solve`, `pre_body`, `run_start` or `run_end`. Not allowed for a function |
 | `:numbering:` | `decimal` (default): 1, 1.1, 1.1.1. `outline`: 1, a), i., as vendor programming guides number them |
 | `:expand-calls:` | `inline` (default): a called function's steps become sub-steps. `link`: one row that links to the callee. `none`: calls are never expanded |
 | `:depth:` | How many levels of calls expand. `0` expands none; the default is no limit |
-| `:format:` | `table` (default), `flowchart`, or `both`: the table, then the flowchart. See {ref}`step-flowcharts` |
+| `:format:` | `table` (default), `flowchart`, or `both`: the table, then the flowchart. See {ref}`step-flowcharts`. A compound action's steps are a table only |
+| `:expand-exec:` | For a compound action: follow traversals of atomic actions into their `exec body` steps. See {ref}`activity-step-table` |
+| `:weights:` | For a compound action: show `select` weights in the table |
 
 `:steps:` can't be set in `pss_default_options`: a table everywhere is never
 what a project means, and the build stops with an error if it is there.
@@ -277,6 +280,124 @@ and, later in the same file:
 The [Ethernet example](../examples/steps.md) shows a larger sequence in both
 numbering styles.
 
+(steps-in-activities)=
+## Steps in activities
+
+```{admonition} Needs a newer pssparser
+:class: note
+
+Markers in an activity are read from the comments pssparser attaches to
+activity statements, and releases up to 3.1.7 attach none. With such a
+parser, activity diagrams are drawn without steps, and the build says why
+once, as a `pss.step_unsupported` warning at the first marker it finds.
+```
+
+A compound action's `activity` can be marked like a function body. The steps
+become labelled regions of its {doc}`activity diagram <activities>`:
+
+```{literalinclude} ../../tests/fixtures/pss/activities/steps_xfer.pss
+:language: pss
+:start-at: /// Copy a block in two halves
+:end-before: // The page's excerpt ends here.
+:dedent: 8
+```
+
+```{eval-rst}
+.. pss:activity-diagram:: sxfer_pkg::dma_c::xfer
+```
+
+### How far a step reaches
+
+In a function, a step covers the statements from its marker to the next marker
+in the same block. In an activity, that holds only where the statements run
+one after another. A `parallel`'s branches run at the same time, so a marker
+there covers its own branch:
+
+| Block | A marker covers |
+|---|---|
+| The `activity` itself, `sequence`, and the braced bodies of `if`, `repeat`, `foreach`, `replicate` and `atomic` | Its statement, up to the next marker in the block, as in a function |
+| `parallel`, `schedule` | Its own branch |
+| `select`, `match` | Its own arm. Write the marker above the arm: `/// Step: Fast path` above `(fast): burst;` |
+
+So in the example, `Copy the first half` covers `c1` and nothing else, even
+though `c2` follows it. A branch can still hold a procedure of its own: make
+it a `sequence { }` and mark the statements inside it.
+
+A `schedule` reaches like a `parallel`, because its branches run in an order
+the tool chooses. The two are still drawn differently: a `schedule` has hollow
+bars in a frame of its own (see {doc}`activities`).
+
+Everything else is as in a function: markers in a nested block are sub-steps,
+a marker on a `parallel`, `select` or loop titles it, and steps are numbered
+for you, continuing across the `activity` blocks an `extend` adds.
+
+### Showing them
+
+Step regions are drawn by default. `:steps: collapsed` draws each outermost
+step as one box, which gives a large activity an overview. `:steps: none`
+ignores the markers.
+
+```rst
+.. pss:activity-diagram:: sxfer_pkg::dma_c::xfer
+   :steps: collapsed
+```
+
+```{eval-rst}
+.. pss:activity-diagram:: sxfer_pkg::dma_c::xfer
+   :steps: collapsed
+```
+
+In an activity that has steps, a traversal outside every step is reported, as
+a call is in a function (`pss.step_prelude_call`, below). In a `parallel`,
+that includes an unmarked branch beside marked ones.
+
+(activity-step-table)=
+### The step table of a compound action
+
+`pss:steps`, and `:steps:` on `autopssaction`, take a compound action with no
+`:exec:`: the table is its activity's steps. A traversal inside a step expands
+like a call, into the traversed action's own activity steps.
+
+An activity says which actions run, and in what arrangement; an atomic
+action's `exec body` says how it does its work. The table keeps the two apart
+unless `:expand-exec:` asks to follow a traversal into an atomic action's
+`exec body` steps, which then sit under a row that marks the boundary:
+
+```rst
+.. pss:steps:: sxfer_pkg::dma_c::xfer
+   :expand-exec:
+```
+
+```{table}
+:name: activity-step-table-example
+
+| # | Step |
+|---|---|
+| 1 | Configure the channel |
+|  | The `exec body` of `configure`: |
+| 1.1 | Write the descriptor |
+| 1.2 | Enable the channel |
+| 2 | Move the data<br>In parallel: |
+| 2.1 | Copy the first half |
+| 2.2 | Copy the second half |
+| 3 | Check the result |
+```
+
+The Details and Source columns are left out here. A marked `parallel` is one
+row, the step's title and then "In parallel:", as a marked `if` is. The other
+controls read:
+
+| Control | Row |
+|---|---|
+| `parallel` | "In parallel:", or with a join specification "In parallel, until the first `1` finish:", "Start in parallel, without waiting:" |
+| `schedule` | "In an order the tool chooses:", with its scheduling constraints: "(`s1`, then `s2`)" |
+| `select` | "One of:", then "If `fast`:" for a guarded arm and "Or:" for an unguarded one. `:weights:` adds "(weight `3`)" |
+| `replicate` | "`4` copies, in parallel:" |
+| `atomic` | "Without interleaving:" |
+
+`:format: flowchart` isn't offered for an activity: its
+{doc}`activity diagram <activities>` is its flowchart.
+
 ## What is checked
 
 Markers are checked across the whole model on every build, including functions
@@ -285,10 +406,11 @@ is a warning at the comment's line in the `.pss` file.
 
 | Warning | When |
 |---|---|
-| `pss.step_syntax` | Inside a function body or `exec` block, a line that starts with `step` or `steps`, in any case, but isn't a marker |
-| `pss.step_misplaced` | A marker outside any function body or `exec` block. It is ignored |
+| `pss.step_syntax` | Inside a function body, `exec` block or activity, a line that starts with `step` or `steps`, in any case, but isn't a marker |
+| `pss.step_misplaced` | A marker outside any function body, `exec` block or activity. It is ignored |
 | `pss.step_empty` | A marker with no title, or a step with nothing in it |
-| `pss.step_prelude_call` | In a body a step table shows, a call outside every step |
+| `pss.step_prelude_call` | In a body a step table shows, a call outside every step; in an activity with steps, a traversal outside every step |
+| `pss.step_unsupported` | The installed pssparser can't read markers in activities, and one is there. Once per build |
 
 The first three are only ever about `///` and `/** */` comments.
 `pss.step_prelude_call` is about the code, and is only checked where a table
@@ -331,7 +453,7 @@ struct channel_cfg_s {
 ```
 
 ```text
-drv.pss:2: WARNING: step marker outside a function body or exec block is ignored: 'Step: Configure the channel' [pss.step_misplaced]
+drv.pss:2: WARNING: step marker outside a function body, exec block or activity is ignored: 'Step: Configure the channel' [pss.step_misplaced]
 ```
 
 ### `pss.step_empty`

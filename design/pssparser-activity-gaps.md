@@ -1,9 +1,9 @@
 # `pssparser` — activity-construction deficiencies
 
-**Status:** Findings, for fixing in a later session
+**Status:** Fixed upstream. `A1`–`A6` verified on 2026-09-29 against pssparser `1ec757b` (its `test_activity_gaps.py`, 49 tests, passes). Kept as the record of the findings. What remains is in `../pssparser/docs/design/sphinx-pss-requests-2026-09-28.md` (`R1`, `R2`) and `-2026-09-29.md` (`AC1`–`AC3`, comments in activities)
 **Date:** 2026-09-07
 **Scope:** `ActivityDecl` and its statement nodes, as produced by `AstBuilderInt`
-**Consumer:** [`activity-diagrams-design.md`](activity-diagrams-design.md) — the static UML activity-diagram renderer, which cannot be built correctly until `A1` and `A2` land
+**Consumer:** [`activity-diagrams-design.md`](activity-diagrams-design.md) — the static UML activity-diagram renderer
 **Clone:** `packages/pssparser` (the working clone; ahead of `~/projects/psstools/pssparser`)
 
 ---

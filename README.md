@@ -32,6 +32,21 @@ Mermaid. For a codebase that already writes `// Step: …`, an opt-in
 
 See `docs/usage/steps.md` and `docs/usage/diagrams.md`.
 
+## Activity diagrams
+
+`pss:activity-diagram` draws an action's activity as a UML activity diagram,
+with forks and joins for `parallel`, decisions for `select`, `if` and `match`,
+frames for loops, and each traversal linked to the action it runs.
+`:activity-diagram:` on `autopssaction` puts it in the action's entry.
+Programming steps marked in the activity become labelled regions of it.
+
+```rst
+.. pss:activity-diagram:: xfer_pkg::dma_c::xfer
+   :depth: 2
+```
+
+See `docs/usage/activities.md`.
+
 ## Status
 
 Early development. See `design/` for the design and the phased

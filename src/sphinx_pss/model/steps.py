@@ -66,6 +66,7 @@ __all__ = [
     "EXEC_KINDS",
     "EXPAND_MODES",
     "ExtensionGroup",
+    "Group",
     "Loop",
     "NUMBERING_STYLES",
     "STEP_PRELUDE_CALL",
@@ -128,19 +129,23 @@ class Step:
 class Arm:
     """One way through a `Branch`."""
 
-    #: ``if``, ``else_if``, ``else``, ``choice`` or ``default``.
+    #: ``if``, ``else_if``, ``else``, ``choice`` or ``default``; in an
+    #: activity also ``select`` (a ``select`` arm, ``label`` its guard, empty
+    #: for none).
     kind: str
     #: The condition or choice label as written; empty for ``else`` and ``default``.
     label: str
     children: list[Node] = dataclasses.field(default_factory=list)
     source: SourceRef | None = None
+    #: A ``select`` arm's weight, when the table shows weights (activity-diagrams D2).
+    weight: str = ""
 
 
 @dataclasses.dataclass(eq=False)
 class Branch:
-    """An ``if`` chain or a ``match`` that holds steps."""
+    """An ``if`` chain, a ``match`` or an activity's ``select`` that holds steps."""
 
-    #: ``if`` or ``match``.
+    #: ``if``, ``match`` or ``select``.
     kind: str
     source: SourceRef | None
     arms: list[Arm] = dataclasses.field(default_factory=list)
@@ -170,12 +175,31 @@ class Loop:
 
 
 @dataclasses.dataclass(eq=False)
+class Group:
+    """An activity's ``parallel``, ``schedule``, ``replicate`` or ``atomic`` that holds steps.
+
+    ``label`` is the join specification of a ``parallel`` or ``schedule`` as
+    written, or a ``replicate``'s count; ``constraints`` a ``schedule``'s
+    scheduling constraints as ``(is_parallel, targets)``.
+    """
+
+    kind: str
+    source: SourceRef | None
+    children: list[Node] = dataclasses.field(default_factory=list)
+    label: str = ""
+    constraints: tuple[tuple[bool, tuple[str, ...]], ...] = ()
+    marked: bool = False
+
+
+@dataclasses.dataclass(eq=False)
 class CallExpansion:
-    """A call to a function with steps.
+    """A call to a function with steps, or in an activity a traversal of an action with steps.
 
     ``mode`` is ``inline`` (its steps are the children), ``link`` (a reference
     to the callee's own steps) or ``cut`` (recursion: the callee is already
-    being expanded further up, and `see` names where).
+    being expanded further up, and `see` names where). ``exec`` is a
+    traversal of an atomic action expanded into its ``exec body`` steps
+    (activity-diagrams D3), drawn under a row marking the boundary.
     """
 
     callee: str
@@ -204,7 +228,7 @@ class ExtensionGroup:
     children: list[Node] = dataclasses.field(default_factory=list)
 
 
-Node = Union[Step, Branch, Loop, CallExpansion]
+Node = Union[Step, Branch, Loop, CallExpansion, Group]
 
 
 @dataclasses.dataclass(eq=False)
@@ -217,6 +241,8 @@ class StepsDoc:
     groups: list[ExtensionGroup]
     #: ``pss.step_prelude_call`` problems in the bodies shown.
     issues: list[StepIssue] = dataclasses.field(default_factory=list)
+    #: The steps are a compound action's activity's (activity-diagrams design 4.4).
+    activity: bool = False
 
     def steps(self) -> Iterator[Step]:
         """Every step, depth first, in table order."""
@@ -241,11 +267,15 @@ def steps_for(
     expand_calls: str = "inline",
     depth: int | None = None,
     numbering: str = "decimal",
+    expand_exec: bool = False,
+    weights: bool = False,
 ) -> StepsDoc:
     """The numbered step tree of ``target``.
 
     ``target`` is a function's qualified name, or a type's with ``exec_kind``
-    naming the blocks. ``depth`` limits how many levels of calls expand;
+    naming the blocks, or a compound action's with no ``exec_kind``: then
+    the steps are its activity's (activity-diagrams design 4.4), and
+    ``expand_exec`` and ``weights`` apply. ``depth`` limits how many levels of calls expand;
     ``None`` is no limit. Raises `StepsError` with a message for the user when
     the target or an option is wrong, and `StepsUnavailable` when the model
     didn't link.
@@ -277,6 +307,18 @@ def steps_for(
         group = ExtensionGroup(source=node_source_ref(scope, model.file_map))
         builder.fill(group, [body], root=target)
         groups = [group]
+    elif kind == "SymbolTypeScope" and exec_kind is None and _has_activity(model, target):
+        from .activity_steps import activity_steps
+
+        return activity_steps(
+            model,
+            target,
+            expand_calls=expand_calls,
+            depth=depth,
+            numbering=numbering,
+            expand_exec=expand_exec,
+            weights=weights,
+        )
     elif kind == "SymbolTypeScope":
         groups = []
         for block, is_extension in _exec_blocks(scope, target, exec_kind):
@@ -289,6 +331,12 @@ def steps_for(
     doc = StepsDoc(target=target, exec_kind=exec_kind, groups=groups, issues=builder.issues)
     number_steps(doc, numbering)
     return doc
+
+
+def _has_activity(model: ParsedModel, target: str) -> bool:
+    from .activity import has_activity
+
+    return has_activity(model, target)
 
 
 def _exec_blocks(scope: Any, target: str, exec_kind: str | None) -> list[tuple[Any, bool]]:

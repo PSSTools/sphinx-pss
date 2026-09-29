@@ -33,6 +33,16 @@ walks the tokens to the parentheses, braces or colon that delimit the text:
 - `SourceText.statement_end`: the ``;`` that ends a simple statement, which
   bounds the calls it makes (`sphinx_pss.model.calls`).
 
+For activities (activity-diagrams design 3.3):
+
+- `SourceText.select_arm`: a ``select`` arm's ``(guard)`` and ``[weight]``,
+  from its body's position, as `choice_label` finds a ``match`` choice.
+- `SourceText.between_keyword_and_brace`: a ``parallel`` or ``schedule``
+  join specification, ``join_first (1)``.
+- `SourceText.with_clause`: the constraints of ``do A with { ... }``.
+- `SourceText.braced_after`: the text in the first ``{ }`` after a position,
+  such as an activity-scope ``constraint { ... }``.
+
 Positions are the parser's: 1-based lines and 1-based columns. Every lookup
 returns ``None`` when the tokens are not what it expects, so a construct this
 module doesn't know gives a missing label, never an exception.
@@ -277,6 +287,87 @@ class SourceText:
             return None
         tok = ft.tok(end)
         return tok.line, tok.col
+
+
+    # --- activities --------------------------------------------------------------
+
+    def select_arm(self, loc: Any) -> tuple[str | None, str | None] | None:
+        """The ``(guard)`` and ``[weight]`` of the ``select`` arm whose body is at ``loc``.
+
+        ``(fast) [3]: c1;`` gives ``("fast", "3")``, ``[1]: c2;`` gives
+        ``(None, "1")``. An arm with neither has no ``:`` before its body and
+        gives ``(None, None)``. None when the tokens aren't an arm.
+        """
+        found = self._start(loc)
+        if found is None:
+            return None
+        ft, n = found
+        colon = n - 1
+        if colon < 0:
+            return None
+        if ft.tok(colon).text != ":":
+            return (None, None) if ft.tok(colon).text in ("{", "}", ";") else None
+        guard = weight = None
+        m = colon - 1
+        while m >= 0 and ft.tok(m).text in ("]", ")"):
+            opening = ft.match_backward(m)
+            if opening is None:
+                return None
+            inner = ft.text_between(opening, m)
+            if ft.tok(m).text == "]":
+                weight = inner
+            else:
+                guard = inner
+            m = opening - 1
+        return guard, weight
+
+    def between_keyword_and_brace(self, loc: Any) -> str | None:
+        """The text after the keyword at ``loc`` and before its ``{``, or None when there is none."""
+        found = self._start(loc)
+        if found is None:
+            return None
+        ft, n = found
+        for m in range(n + 1, len(ft.code)):
+            text = ft.tok(m).text
+            if text == "{":
+                return ft.text_between(n, m) or None
+            if text in (";", "}"):
+                return None
+            if text in ("(", "["):
+                close = ft.match_forward(m)
+                if close is None:
+                    return None
+        return None
+
+    def with_clause(self, loc: Any) -> str | None:
+        """The text inside ``with { ... }`` of the traversal at ``loc``, or None without one."""
+        found = self._start(loc)
+        if found is None:
+            return None
+        ft, n = found
+        end = ft.end_of_statement(n)
+        if end is None:
+            return None
+        for m in range(n, end):
+            if ft.tok(m).text == "with" and m + 1 < end and ft.tok(m + 1).text == "{":
+                close = ft.match_forward(m + 1)
+                return ft.text_between(m + 1, close) if close is not None else None
+        return None
+
+    def braced_after(self, loc: Any) -> str | None:
+        """The text inside the first ``{ }`` after the token at ``loc``."""
+        found = self._start(loc)
+        if found is None:
+            return None
+        ft, n = found
+        for m in range(n, len(ft.code)):
+            text = ft.tok(m).text
+            if text == "{":
+                close = ft.match_forward(m)
+                return ft.text_between(m, close) if close is not None else None
+            if text in (";", "}"):
+                return None
+        return None
 
 
 def _tokens(data: bytes) -> list[_Tok]:

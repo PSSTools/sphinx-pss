@@ -26,8 +26,6 @@ and documenters should not.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
-
 
 # --- kinds -----------------------------------------------------------------
 #
@@ -206,13 +204,6 @@ class FlowSpec:
 
 
 @dataclasses.dataclass
-class ActivityGraph:
-    """A normalized activity (Phase 3, `sphinx_pss.model.activity`)."""
-
-    root: Any = None
-
-
-@dataclasses.dataclass
 class PssObject:
     """One documentable PSS element.
 
@@ -249,7 +240,6 @@ class PssObject:
     defined_in: Provenance = dataclasses.field(default_factory=Provenance)
 
     flow: FlowSpec | None = None
-    activity: ActivityGraph | None = None
     group: str | None = None
 
     children: list["PssObject"] = dataclasses.field(default_factory=list)

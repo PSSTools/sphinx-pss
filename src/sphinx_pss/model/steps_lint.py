@@ -22,7 +22,7 @@ asks for steps (plan decision D5): a mistyped marker is a mistake wherever it
 is. Three codes, all ``type="pss"`` warnings:
 
 ``step_syntax``
-    Inside a function body or ``exec`` block, a line whose first word is
+    Inside a function body, ``exec`` block or activity, a line whose first word is
     ``step`` or ``steps`` (any case) that is not a valid marker.
 ``step_misplaced``
     A valid marker anywhere else: on a declaration, or at package or
@@ -35,6 +35,11 @@ Only ``///`` and ``/** */`` comments are read. Nothing is ever reported for a
 plain ``//`` or ``/* */`` comment. Near misses are only looked for inside
 bodies: a doc comment on a declaration is prose, and ``/// Steps are
 generated`` there is not a typo.
+
+Activity statements are valid places for a marker (activity-diagrams design
+4.6). Their comments are read through `sphinx_pss.model.activity`'s
+``statement_comments`` and ``block_comments``, the same functions the
+activity model reads, so the two never disagree about what is attached.
 
 The walk is over the per-file syntax trees (``user_units()``) rather than the
 linked model, because comments are attached there, each file is visited once,
@@ -71,6 +76,14 @@ _BLOCK = "ExecScope"
 #: A function with a body. Its comments are the function's doc comment; the
 #: statements are under ``getBody()``.
 _FUNCTION_DEFINITION = "FunctionDefinition"
+#: An ``activity { }`` block. Its own comments are above the ``activity``
+#: keyword, so they are declaration comments; its statements hold markers.
+_ACTIVITY_DECL = "ActivityDecl"
+#: Activity statements whose children are statements, and so have a ``}``
+#: that closing comments can come before.
+_ACTIVITY_SCOPES = frozenset(
+    {"ActivityDecl", "ActivitySequence", "ActivityParallel", "ActivitySchedule", "ActivitySelect", "ActivityMatch"}
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -114,6 +127,9 @@ class _Linter:
             # Its closing comments are inside the block.
             self.statements(node)
             return
+        if kind == _ACTIVITY_DECL:
+            self.activity_scope(node)
+            return
         self.misplaced(closing_comments(node))
         if kind == _FUNCTION_DEFINITION:
             body = node.getBody()
@@ -127,16 +143,7 @@ class _Linter:
         """The statements of a block, then the comments before its ``}``."""
         for child in iter_children(scope):
             self.statement(child)
-        markers = self.attached(closing_comments(scope))
-        if markers:
-            last = markers[-1]
-            if last.title:
-                self.report(
-                    STEP_EMPTY,
-                    f"step {last.title!r} has no statements: the block ends "
-                    "after its marker",
-                    last,
-                )
+        self.closing(self.attached(closing_comments(scope)))
 
     def statement(self, node: Any) -> None:
         """A statement, a ``{ }`` block, or an ``if`` clause or ``match`` choice."""
@@ -146,6 +153,29 @@ class _Linter:
             return
         for sub in _sub_blocks(node):
             self.statement(sub)
+
+    def activity_scope(self, scope: Any) -> None:
+        """An activity block's statements, then the comments before its ``}``."""
+        from . import activity
+
+        for child in iter_children(scope):
+            if node_type_name(child).startswith("Activity"):
+                self.activity_statement(child)
+        self.closing(self.attached(activity.block_comments(scope)))
+
+    def activity_statement(self, node: Any) -> None:
+        from . import activity
+
+        self.attached(activity.statement_comments(node))
+        if node_type_name(node) in _ACTIVITY_SCOPES:
+            self.activity_scope(node)
+        for body in _activity_bodies(node):
+            self.activity_statement(body)
+
+    def closing(self, markers: list[_Located]) -> None:
+        if markers and markers[-1].title:
+            last = markers[-1]
+            self.report(STEP_EMPTY, f"step {last.title!r} has no statements: the block ends after its marker", last)
 
     # --- checks --------------------------------------------------------------
 
@@ -186,8 +216,8 @@ class _Linter:
             for marker in parse_markers(comment.lines, comment.line):
                 self.report(
                     STEP_MISPLACED,
-                    "step marker outside a function body or exec block is "
-                    f"ignored: 'Step: {marker.title}'",
+                    "step marker outside a function body, exec block or activity "
+                    f"is ignored: 'Step: {marker.title}'",
                     _Located(comment, marker.line, marker),
                 )
 
@@ -241,3 +271,18 @@ def _sub_blocks(stmt: Any) -> Iterator[Any]:
             yield other
     for i in range(stmt.numChoices() if hasattr(stmt, "numChoices") else 0):
         yield stmt.getChoice(i)
+
+
+def _activity_bodies(stmt: Any) -> Iterator[Any]:
+    """The statements an activity statement holds behind accessors, not as children."""
+    for name in ("getBody", "getTrue_s", "getFalse_s"):
+        get = getattr(stmt, name, None)
+        body = get() if get is not None else None
+        if body is not None:
+            yield body
+    for count, get in (("numBranches", "getBranche"), ("numChoices", "getChoice")):
+        if hasattr(stmt, count):
+            for i in range(getattr(stmt, count)()):
+                body = getattr(stmt, get)(i).getBody()
+                if body is not None:
+                    yield body

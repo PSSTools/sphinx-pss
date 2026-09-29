@@ -347,3 +347,119 @@ def test_two_builds_write_the_same_diagrams(make_app, rootdir, tmp_path, backend
 
     assert len(codes[0]) == 3
     assert codes[0] == codes[1]
+
+
+# --- UML activity vocabulary (activity-diagrams plan AD2-TEST-2) --------------------
+
+
+def _uml() -> Graph:
+    g = Graph("uml")
+    step = g.add_cluster("1 Move the data", kind="step")
+    start = g.add_node("", "initial")
+    fork = g.add_node("", "bar", cluster=step.id)
+    act = g.add_node("c1 : copy", "action", cluster=step.id)
+    join = g.add_node("{join_first(1)}", "bar", cluster=step.id)
+    sched = g.add_node("", "hollow_bar")
+    merge = g.add_node("", "merge")
+    note = g.add_node("with {len == 4;}", "note")
+    param = g.add_node("in_data", "parameter")
+    ff = g.add_node("", "flow_final")
+    end = g.add_node("", "final")
+    g.add_edge(start, fork)
+    g.add_edge(fork, act)
+    g.add_edge(act, join)
+    g.add_edge(join, sched)
+    g.add_edge(sched, merge)
+    g.add_edge(merge, end)
+    g.add_edge(fork, ff)
+    g.add_edge(act, note, style="anchor", directed=False)
+    g.add_edge(param, act, "src", style="object", directed=False)
+    g.add_edge(act, merge, "sequence", style="constraint")
+    return g
+
+
+@pytest.mark.unit
+def test_dot_text_for_the_uml_vocabulary() -> None:
+    lines = to_dot(_uml()).splitlines()[4:]
+
+    assert lines == [
+        "    subgraph cluster_c1 {",
+        '        label="1 Move the data"; style="rounded,filled"; fillcolor="#80808020"; fontsize=9;',
+        '        n2 [label="", shape=box, style=filled, fillcolor=black, height=0.05, width=1.5, fixedsize=true, ordering=out];',
+        '        n3 [label="c1 : copy", shape=box, style="rounded"];',
+        '        n4 [label="", shape=box, style=filled, fillcolor=black, height=0.05, width=1.5, fixedsize=true, ordering=out, xlabel="{join_first(1)}"];',
+        "    }",
+        '    n1 [label="", shape=circle, style=filled, fillcolor=black, width=0.2, fixedsize=true];',
+        '    n5 [label="", shape=box, height=0.08, width=1.5, fixedsize=true, ordering=out];',
+        '    n6 [label="", shape=diamond, width=0.25, height=0.25, fixedsize=true];',
+        '    n7 [label="with {len == 4;}", shape=note];',
+        '    n8 [label="in_data", shape=box];',
+        '    n9 [label="", shape=circle, width=0.25, fixedsize=true];',
+        '    n10 [label="", shape=doublecircle, style=filled, fillcolor=black, width=0.15, fixedsize=true];',
+        "    n1 -> n2;",
+        "    n2 -> n3;",
+        "    n3 -> n4;",
+        "    n4 -> n5;",
+        "    n5 -> n6;",
+        "    n6 -> n10;",
+        "    n2 -> n9;",
+        "    n3 -> n7 [style=dotted, dir=none];",
+        '    n8 -> n3 [label="src", style=dashed, constraint=false, dir=none];',
+        '    n3 -> n6 [label="sequence", style=dotted, constraint=false];',
+        "    { rank=same; n3; n7; }",
+        "}",
+    ]
+
+
+@pytest.mark.unit
+@needs_dot
+def test_dot_accepts_the_uml_vocabulary() -> None:
+    result = subprocess.run(["dot", "-Tsvg"], input=to_dot(_uml()), capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+
+
+@pytest.mark.unit
+def test_mermaid_text_for_the_uml_vocabulary() -> None:
+    assert to_mermaid(_uml()).splitlines() == [
+        "flowchart TD",
+        '    subgraph c1["1 Move the data"]',
+        '        n2[" "]',
+        '        n3("c1 : copy")',
+        '        n4["{join_first(1)}"]',
+        "    end",
+        '    n1((" "))',
+        '    n5[" "]',
+        '    n6{" "}',
+        '    n7>"with {len == 4;}"]',
+        '    n8["in_data"]',
+        '    n9((" "))',
+        '    n10(((" ")))',
+        "    n1 --> n2",
+        "    n2 --> n3",
+        "    n3 --> n4",
+        "    n4 --> n5",
+        "    n5 --> n6",
+        "    n6 --> n10",
+        "    n2 --> n9",
+        "    n3 -.- n7",
+        '    n8 -.-|"src"| n3',
+        '    n3 -.->|"sequence"| n6',
+        "    style n1 fill:#000,stroke:#000",
+        "    style n2 fill:#000,stroke:#000",
+        "    style n4 fill:#000,stroke:#000",
+        "    style n5 fill:#fff,stroke:#000",
+        "    style n10 fill:#000,stroke:#000",
+        "    style c1 fill:#80808020",
+    ]
+
+
+@pytest.mark.unit
+def test_unknown_edge_styles_and_cluster_kinds_are_refused() -> None:
+    g = Graph("x")
+    n = g.add_node("a", "action")
+    with pytest.raises(ValueError, match="unknown edge style 'wavy'"):
+        g.add_edge(n, n, style="wavy")
+    with pytest.raises(ValueError, match="unknown cluster kind 'box'"):
+        g.add_cluster("c", kind="box")

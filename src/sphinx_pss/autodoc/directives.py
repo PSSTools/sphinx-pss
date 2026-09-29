@@ -219,20 +219,28 @@ class AutoPssDirective(SphinxDirective):
 STEPS_DIRECTIVES = frozenset({"function", "action", "component"})
 
 
+#: Directives that take ``:activity-diagram:``: those that can render an
+#: action, themselves or as a member (activity-diagrams design 7.2).
+ACTIVITY_DIRECTIVES = frozenset({"package", "component", "action", "object"})
+
+
 def make_directive(name: str, kinds: tuple[str, ...]) -> type[AutoPssDirective]:
     label = ", ".join(kinds) if kinds else "object"
     attrs: dict[str, Any] = {
         "kinds": kinds,
         "__doc__": f"Documents a PSS {label} from source.",
     }
+    option_spec = dict(AutoPssDirective.option_spec)
     if name in STEPS_DIRECTIVES:
         from .steps import STEP_OPTIONS
 
-        attrs["option_spec"] = {
-            **AutoPssDirective.option_spec,
-            "steps": directives.flag,
-            **STEP_OPTIONS,
-        }
+        option_spec.update({"steps": directives.flag, **STEP_OPTIONS})
+    if name in ACTIVITY_DIRECTIVES:
+        from .activity import ACTIVITY_OPTIONS_PREFIXED
+
+        option_spec.update({"activity-diagram": _flag_or_bool, **ACTIVITY_OPTIONS_PREFIXED})
+    if option_spec != AutoPssDirective.option_spec:
+        attrs["option_spec"] = option_spec
     return type(f"AutoPss{name.title()}Directive", (AutoPssDirective,), attrs)
 
 

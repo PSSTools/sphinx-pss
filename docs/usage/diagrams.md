@@ -1,9 +1,9 @@
 # Diagrams
 
 Diagrams are drawn from the model at build time, so they change when the code
-does. So far there is one kind, the {ref}`step flowchart <step-flowcharts>`.
-Flow, component and activity diagrams will use the same back-end and the same
-settings.
+does. There are two kinds: the {ref}`step flowchart <step-flowcharts>` and the
+{doc}`activity diagram <activities>`. Flow and component diagrams will use the
+same back-end and the same settings.
 
 ## Choosing a back-end
 
@@ -98,8 +98,8 @@ build, and each diagram is left out:
 steps.md:12: WARNING: sphinx-pss: Graphviz's 'dot' command was not found (graphviz_dot), so diagrams are left out. Install Graphviz, or set pss_diagrams = 'mermaid' or 'off' [pss.diagrams]
 ```
 
-A step flowchart is replaced by its step table, so the page still shows the
-procedure. `"off"` does the same without a warning. To keep the warning out of
+A step flowchart is replaced by its step table, and an activity diagram by
+its outline, so the page still shows the procedure or the activity. `"off"` does the same without a warning. To keep the warning out of
 a `-W` build on a machine without Graphviz, suppress it:
 
 ```python

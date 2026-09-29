@@ -22,6 +22,7 @@ getting-started
 usage/native-style
 usage/directives
 usage/steps
+usage/activities
 usage/diagrams
 ```
 

@@ -51,6 +51,7 @@ from ..model.steps import (
     Branch,
     CallExpansion,
     ExtensionGroup,
+    Group,
     Loop,
     Step,
     StepsDoc,
@@ -75,6 +76,9 @@ STEP_OPTIONS: dict[str, Callable[[str | None], Any]] = {
     "numbering": directives.unchanged_required,
     "expand-calls": directives.unchanged_required,
     "depth": directives.nonnegative_int,
+    # For a compound action's activity (activity-diagrams design 4.4).
+    "expand-exec": directives.flag,
+    "weights": directives.flag,
 }
 
 #: Per build (keyed by source directory, like the shared index): what has
@@ -95,6 +99,26 @@ def start_build(app) -> None:
     """Forget what was reported; called when a build starts."""
     _REPORTED[str(app.srcdir)] = set()
     _CONFDIRS[str(app.srcdir)] = str(app.confdir)
+
+
+def display_path(env: Any, path: str) -> str:
+    """``path`` relative to the source directory it was found under, else to ``conf.py``."""
+    config = env.config
+    confdir = _CONFDIRS.get(str(env.srcdir), str(env.srcdir))
+    full = os.path.abspath(path)
+    for d in config.pss_source_dirs:
+        root = os.path.abspath(os.path.join(confdir, d))
+        if full.startswith(root + os.sep):
+            return os.path.relpath(full, root).replace(os.sep, "/")
+    rel = os.path.relpath(full, confdir)
+    if not rel.startswith(".."):
+        return rel.replace(os.sep, "/")
+    return os.path.basename(full)
+
+
+def report_once(env: Any, key: Any) -> bool:
+    """True the first time ``key`` is reported in this build."""
+    return _report_once(env, key)
 
 
 def _report_once(env: Any, key: Any) -> bool:
@@ -156,6 +180,8 @@ def render_steps(
             expand_calls=options.get("expand-calls", "inline"),
             depth=options.get("depth"),
             numbering=options.get("numbering", "decimal"),
+            expand_exec="expand-exec" in options,
+            weights="weights" in options,
         )
     except StepsUnavailable as e:
         if _report_once(directive.env, "unavailable"):
@@ -179,11 +205,33 @@ def render_steps(
                 message += "; did you mean " + ", ".join(candidates[:5]) + "?"
         return [reporter.error(message, line=directive.lineno)]
 
+    if doc.activity and fmt != "table":
+        # The activity diagram is the activity's flowchart (design 4.4).
+        return [
+            reporter.error(
+                f"sphinx-pss: {qualname!r} is a compound action, whose steps are shown as a table "
+                "only. Draw its activity with pss:activity-diagram, and ':steps: collapsed' for "
+                "one box per step",
+                line=directive.lineno,
+            )
+        ]
+
     for issue in doc.issues:
         if _report_once(directive.env, (issue.code, issue.path, issue.line)):
             logger.warning(issue.message, location=issue.location(), type="pss", subtype=issue.code)
 
     if not any(True for _ in doc.steps()):
+        if doc.activity:
+            from .._capability import activity_comments_supported
+            from ..model.activity import activity_for
+            from ..model.activity_steps import unread_marker
+
+            if not activity_comments_supported() and unread_marker(index.model, activity_for(index.model, qualname)):
+                # The markers are there; the parser can't attach them (design 4.7).
+                from .activity import _report_unread_markers
+
+                _report_unread_markers(directive.env, index.model, activity_for(index.model, qualname))
+                return []
         logger.warning(
             f"sphinx-pss: {_describe(doc)} has no step markers, so there is no step table",
             location=(directive.env.docname, directive.lineno),
@@ -301,18 +349,7 @@ class StepsTable:
         return [nodes.paragraph("", "", link if link is not None else nodes.literal(text=text))]
 
     def display_path(self, path: str) -> str:
-        """``path`` relative to the source directory it was found under, else to ``conf.py``."""
-        config = self.env.config
-        confdir = _CONFDIRS.get(str(self.env.srcdir), str(self.env.srcdir))
-        full = os.path.abspath(path)
-        for d in config.pss_source_dirs:
-            root = os.path.abspath(os.path.join(confdir, d))
-            if full.startswith(root + os.sep):
-                return os.path.relpath(full, root).replace(os.sep, "/")
-        rel = os.path.relpath(full, confdir)
-        if not rel.startswith(".."):
-            return rel.replace(os.sep, "/")
-        return os.path.basename(full)
+        return display_path(self.env, path)
 
     # --- nodes --------------------------------------------------------------------
 
@@ -338,16 +375,23 @@ class StepsTable:
                 self.walk(node.children, level + 1)
             elif isinstance(node, CallExpansion):
                 self.call(node, level)
+            elif isinstance(node, Group):
+                self.row(level, "", self.group_text(node), source=node.source, kind="control")
+                self.walk(node.children, level + 1)
 
     def step(self, step: Step, level: int) -> None:
         children = list(step.children)
         merged = None
-        if children and isinstance(children[0], (Branch, Loop)) and children[0].marked:
+        if children and isinstance(children[0], (Branch, Loop, Group)) and children[0].marked:
             merged = children.pop(0)
 
         secondary = None
         if isinstance(merged, Loop):
             secondary = self.loop_text(merged)
+        elif isinstance(merged, Group):
+            secondary = self.group_text(merged)
+        elif isinstance(merged, Branch) and merged.kind == "select":
+            secondary = [nodes.Text("One of:")]
         elif isinstance(merged, Branch):
             secondary = (
                 self.match_text(merged) if merged.kind == "match" else self.arm_text(merged.arms[0])
@@ -366,10 +410,10 @@ class StepsTable:
         # A marked control is drawn as the step's own row (design 4.3): what
         # it holds sits one level in, and only the arms after the first get
         # rows of their own.
-        if isinstance(merged, Loop):
+        if isinstance(merged, (Loop, Group)):
             self.walk(merged.children, level + 1)
         elif isinstance(merged, Branch):
-            if merged.kind == "match":
+            if merged.kind in ("match", "select"):
                 self.choices(merged, level + 1)
             else:
                 arms = _shown_arms(merged)
@@ -380,8 +424,9 @@ class StepsTable:
         self.walk(children, level + 1)
 
     def branch(self, branch: Branch, level: int) -> None:
-        if branch.kind == "match":
-            self.row(level, "", self.match_text(branch), source=branch.source, kind="control")
+        if branch.kind in ("match", "select"):
+            head = self.match_text(branch) if branch.kind == "match" else [nodes.Text("One of:")]
+            self.row(level, "", head, source=branch.source, kind="control")
             self.choices(branch, level + 1)
             return
         for arm in _shown_arms(branch):
@@ -398,6 +443,13 @@ class StepsTable:
                 self.arm(arm, level)
 
     def call(self, call: CallExpansion, level: int) -> None:
+        if call.mode == "exec":
+            # The boundary between the scenario and the implementation stays
+            # visible (activity-diagrams D3).
+            text = [nodes.Text("The "), nodes.literal(text="exec body"), nodes.Text(" of "), self.callee_ref(call.callee), nodes.Text(":")]
+            self.row(level, "", text, source=call.source, kind="call-exec")
+            self.walk(call.children, level + 1)
+            return
         if call.mode == "inline":
             # The callee's steps are sub-steps of the calling step, numbered
             # from it, as a programming guide nests them.
@@ -413,6 +465,12 @@ class StepsTable:
     # --- text -----------------------------------------------------------------------
 
     def arm_text(self, arm: Arm) -> list[nodes.Node]:
+        if arm.kind == "select":
+            # An unguarded arm isn't a fallback: it may be picked any time.
+            text = _phrase("If ", arm.label, "") if arm.label else [nodes.Text("Or")]
+            if arm.weight:
+                text += [nodes.Text(" (weight "), nodes.literal(text=arm.weight), nodes.Text(")")]
+            return text + [nodes.Text(":")]
         if arm.kind == "if":
             return _phrase("If ", arm.label, ":")
         if arm.kind == "else_if":
@@ -438,14 +496,47 @@ class StepsTable:
             return [nodes.Text("For each "), nodes.literal(text=loop.variable), *_phrase(" in ", loop.label, ":")]
         return _phrase("For each element of ", loop.label, ":")
 
+    def group_text(self, group: Group) -> list[nodes.Node]:
+        """The row of an activity's ``parallel``, ``schedule``, ``replicate`` or ``atomic`` (design 4.4)."""
+        if group.kind == "atomic":
+            return [nodes.Text("Without interleaving:")]
+        if group.kind == "replicate":
+            return [nodes.literal(text=group.label), nodes.Text(" copies, in parallel:")]
+        if group.kind == "schedule":
+            text: list[nodes.Node] = [nodes.Text("In an order the tool chooses")]
+            for is_parallel, targets in group.constraints:
+                names = [nodes.literal(text=name) for name in targets]
+                text.append(nodes.Text(" ("))
+                for i, name in enumerate(names):
+                    if i:
+                        text.append(nodes.Text(", " if is_parallel else " before " if len(names) == 2 else ", then "))
+                    text.append(name)
+                text.append(nodes.Text(" in parallel)" if is_parallel else ")"))
+            return text + [nodes.Text(":")]
+        spec = group.label
+        argument = spec[spec.find("(") + 1 : spec.rfind(")")].strip() if "(" in spec else ""
+        if spec.startswith("join_none"):
+            return [nodes.Text("Start in parallel, without waiting:")]
+        if spec.startswith("join_first"):
+            return _phrase("In parallel, until the first ", argument, " finish:")
+        if spec.startswith("join_select"):
+            return _phrase("In parallel, until ", argument, " chosen at random finish:")
+        if spec.startswith("join_branch"):
+            return _phrase("In parallel, until ", argument, " finish:")
+        return [nodes.Text("In parallel:")]
+
     def callee_ref(self, qualname: str) -> nodes.Node:
         """The callee's name, linked to its entry when a page documents it."""
+        from .directives import get_index
+
+        index = get_index(self.env)
+        obj = index.get(qualname) if index is not None else None
         short = qualname.rsplit("::", 1)[-1]
         node = addnodes.pending_xref(
             "",
             nodes.literal(text=short),
             refdomain="pss",
-            reftype="func",
+            reftype="action" if obj is not None and obj.kind == "action" else "func",
             reftarget=qualname,
             refspecific=True,
             **{"pss:scope": "", GENERATED_REF: True},

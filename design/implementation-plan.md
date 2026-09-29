@@ -243,8 +243,8 @@ Four more gaps surfaced while grounding the builder against the real linked tree
 ### Implementation
 | ID | Task | Done when |
 |---|---|---|
-| ☐ `P3-IMPL-1` | `model/activity.py`: normalize `ActivityDecl` and its statements — `ActivitySequence`, `ActivityParallel`, `ActivitySchedule`, `ActivitySelect`, `ActivityRepeatCount`, `ActivityRepeatWhile`, `ActivityForeach`, `ActivityActionHandleTraversal`, `ActivityActionTypeTraversal`, `ActivityBindStmt`, `ActivityConstraint` → an `ActivityGraph` | fixture activities produce expected graphs |
-| ☐ `P3-IMPL-2` | **Activity diagrams** — render `ActivityGraph`, with traversed actions linked to their pages; `:activity-diagram:` + `pss:activity-diagram::` (design §9.3) | diagram for a compound action |
+| ☑ `P3-IMPL-1` | *(Done 2026-09-29 as `activity-diagrams-plan.md` AD1; the tree is `ActivityTree`, and `ActivityGraph` was dropped for `model/graph.py`.)* `model/activity.py`: normalize `ActivityDecl` and its statements — `ActivitySequence`, `ActivityParallel`, `ActivitySchedule`, `ActivitySelect`, `ActivityRepeatCount`, `ActivityRepeatWhile`, `ActivityForeach`, `ActivityActionHandleTraversal`, `ActivityActionTypeTraversal`, `ActivityBindStmt`, `ActivityConstraint` → an `ActivityGraph` | fixture activities produce expected graphs |
+| ☑ `P3-IMPL-2` | *(Done 2026-09-29 as `activity-diagrams-plan.md` AD2–AD5, with steps in activities.)* **Activity diagrams** — render `ActivityGraph`, with traversed actions linked to their pages; `:activity-diagram:` + `pss:activity-diagram::` (design §9.3) | diagram for a compound action |
 | ☐ `P3-IMPL-3` | `autopsssummary` whole-tree directive — walk an index subtree, emit a structured API tree; scope narrowing by `:packages:`, `:components:`, `:kinds:`, name glob | tree page generated |
 | ☐ `P3-IMPL-4` | `viewcode.py`: `[source]` links + generated highlighted per-file PSS listings; `pss_viewcode`. Note `Location.extent`/end-locations exist only on `Scope` nodes, so non-scope members link to a line, not a range (design §4.3) | links resolve to the right line |
 | ☐ `P3-IMPL-5` | Objects inventory (`objects.inv`) export for intersphinx + search | intersphinx round-trip works |
@@ -258,9 +258,9 @@ Four more gaps surfaced while grounding the builder against the real linked tree
 ### Tests
 | ID | Task | Done when |
 |---|---|---|
-| ☐ `P3-TEST-1` | `tests/fixtures/pss/activity_model.pss` — sequence, parallel, schedule, select, repeat, foreach, nested compound actions | committed fixture |
-| ☐ `P3-TEST-2` | `tests/model/test_activity.py` — graph normalization per statement kind; nesting preserved | green |
-| ☐ `P3-TEST-3` | `tests/autodoc/test_activity_diagram.py` (`sphinx`) — diagram nodes, action links | green |
+| ☑ `P3-TEST-1` | `tests/fixtures/pss/activity_model.pss` — sequence, parallel, schedule, select, repeat, foreach, nested compound actions | committed fixture |
+| ☑ `P3-TEST-2` | `tests/model/test_activity.py` — graph normalization per statement kind; nesting preserved | green |
+| ☑ `P3-TEST-3` | `tests/autodoc/test_activity_diagram.py` (`sphinx`) — diagram nodes, action links | green |
 | ☐ `P3-TEST-4` | `tests/autodoc/test_summary.py` (`sphinx`) — whole-tree output and each scope-narrowing option | green |
 | ☐ `P3-TEST-5` | `tests/domain/test_viewcode.py` (`sphinx`) — source links present and line-correct | green |
 | ☐ `P3-TEST-6` | `tests/domain/test_intersphinx.py` — `objects.inv` produced; external ref resolves | green |
@@ -272,7 +272,7 @@ Four more gaps surfaced while grounding the builder against the real linked tree
 ### Docs
 | ID | Task | Done when |
 |---|---|---|
-| ☐ `P3-DOC-1` | `docs/usage/activities.md` — activity documentation and diagrams | builds clean |
+| ☑ `P3-DOC-1` | `docs/usage/activities.md` — activity documentation and diagrams | builds clean |
 | ☐ `P3-DOC-2` | `docs/usage/whole-tree.md` — `autopsssummary`, scope narrowing, recommended page structure | builds clean |
 | ☐ `P3-DOC-3` | `docs/usage/cross-referencing.md` — roles, intersphinx, viewcode | builds clean |
 | ☐ `P3-DOC-4` | `docs/examples/stdlib.md` — **the flagship**: a live, linked PSS core-library reference built by the extension (design §9.8 step 3) | stdlib reference builds under `-W` |
@@ -362,7 +362,7 @@ When it is picked up, the work is additive because the seams exist from Phase 1:
 | P0.5 Upstream parser fixes | ☑ | ☑ | ☑ | `P05-ACC` ☑ | **done** (`pssparser` 3.1.0; tagging pending) |
 | P1 MVP (index + domain + native) | ☑ | ☑ | ☑ | `P1-ACC` ☑ | **done** (311 tests green; `docs/` builds under `-W`) |
 | P2 PSS differentiators | ☐ | ☐ | ☐ | `P2-ACC` ☐ | not started |
-| P3 Activities + whole tree + stdlib | ☐ | ☐ | ☐ | `P3-ACC` ☐ | not started |
+| P3 Activities + whole tree + stdlib | ☐ | ☐ | ☐ | `P3-ACC` ☐ | in progress: activities (`P3-IMPL-1`/`-2`) done 2026-09-29 via [`activity-diagrams-plan.md`](activity-diagrams-plan.md); whole tree and stdlib not started |
 | P4 Traceability + coverage + polish | ☐ | ☐ | ☐ | `P4-ACC` ☐ | not started |
 | Programming steps (proposed §9.9) — tracked in [`programming-steps-plan.md`](programming-steps-plan.md); its S4 delivers `P2-IMPL-5` | ☑ | ☑ | ☑ | `S3-ACC` ☑ `S4-ACC` ☑ | S0–S2 done 2026-09-28; S3 (step tables), S4 (flowcharts, `P2-IMPL-5`) and S5 (migration checker) done 2026-09-29 |
 | Deferred: `@doc` annotations | ☐ | ☐ | ☐ | — | unscheduled (deprioritized; G4 resolved) |

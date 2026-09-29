@@ -43,6 +43,13 @@ DIAGRAM_BACKENDS = ("graphviz", "mermaid", "off")
 #: Member orderings ``:member-order:`` and ``pss_default_options`` accept.
 MEMBER_ORDERS = ("source", "alpha", "groups")
 
+#: ``activity-format`` values (activity-diagrams design 7.1).
+ACTIVITY_FORMATS = ("diagram", "outline", "both")
+#: ``activity-steps`` values (activity-diagrams design 5.2).
+ACTIVITY_STEP_MODES = ("regions", "collapsed", "none")
+#: The deepest ``activity-depth`` (activity-diagrams design 5.3).
+ACTIVITY_MAX_DEPTH = 4
+
 
 class ConfigValue(NamedTuple):
     """One ``app.add_config_value`` registration."""
@@ -113,6 +120,23 @@ def validate_config(app: Sphinx | None, config: Config) -> None:
     order = config.pss_default_options.get("member-order")
     if order is not None:
         _check_choice("pss_default_options['member-order']", order, MEMBER_ORDERS)
+
+    # An activity diagram on every action is a reasonable project default,
+    # unlike a step table (activity-diagrams design 7.2).
+    fmt = config.pss_default_options.get("activity-format")
+    if fmt is not None:
+        _check_choice("pss_default_options['activity-format']", fmt, ACTIVITY_FORMATS)
+    steps = config.pss_default_options.get("activity-steps")
+    if steps is not None:
+        _check_choice("pss_default_options['activity-steps']", steps, ACTIVITY_STEP_MODES)
+    depth = config.pss_default_options.get("activity-depth")
+    if depth is not None and (
+        isinstance(depth, bool) or not isinstance(depth, int) or not 1 <= depth <= ACTIVITY_MAX_DEPTH
+    ):
+        raise PssConfigError(
+            f"pss_default_options['activity-depth']: {depth!r} is not a valid value; "
+            f"expected a whole number from 1 to {ACTIVITY_MAX_DEPTH}"
+        )
 
 
 def setup(app: Sphinx) -> None:

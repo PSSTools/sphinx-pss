@@ -90,6 +90,11 @@ class DocumenterOptions:
     #: Rendering options carried through to Phase-2 features; accepted now so
     #: a document written today does not have to change when they land.
     show_extensions: bool = False
+    #: Put each documented action's activity diagram in its entry, with
+    #: ``activity_options`` for the ``pss:activity-diagram`` it becomes
+    #: (activity-diagrams design 7.2).
+    activity_diagram: bool = False
+    activity_options: tuple[tuple[str, Any], ...] = ()
 
     @classmethod
     def from_directive(
@@ -125,6 +130,12 @@ class DocumenterOptions:
             no_index=flag("no-index"),
             doc_style=merged.get("doc-style") or "native",
             show_extensions=flag("show-extensions"),
+            activity_diagram=flag("activity-diagram"),
+            activity_options=tuple(
+                (name, merged[f"activity-{name}"])
+                for name in ("format", "depth", "weights", "steps")
+                if f"activity-{name}" in merged and merged[f"activity-{name}"] is not False
+            ),
         )
 
 
@@ -179,6 +190,9 @@ class PssDocumenter:
             else:
                 out.append(text, obj.doc_source.path, line - 1)
 
+        for text in self._activity_diagram(obj, body_indent):
+            emit(text)
+
         if self.options.members:
             for member in self._members(obj):
                 out.extend(self.document(member, body_indent))
@@ -212,6 +226,31 @@ class PssDocumenter:
         if self.options.no_index:
             options.append(":no-index:")
         return options
+
+    def _activity_diagram(self, obj: PssObject, indent: str) -> list[str]:
+        """A ``pss:activity-diagram`` for ``obj``, when asked for and it has an activity.
+
+        Emitted into the generated text rather than added afterwards, so an
+        action documented as a member gets its diagram too, which is what
+        makes ``activity-diagram`` useful as a project default.
+        """
+        if not self.options.activity_diagram or obj.kind != "action":
+            return []
+        model = self.index.model
+        if not model.linked:
+            return []
+        from ..model.activity import has_activity
+
+        if not has_activity(model, obj.qualname):
+            return []
+        lines = [f"{indent}.. pss:activity-diagram:: {obj.qualname}"]
+        for name, value in self.options.activity_options:
+            if name == "weights":
+                lines.append(f"{indent}   :weights:")
+            else:
+                lines.append(f"{indent}   :{name}: {value}")
+        lines.append("")
+        return lines
 
     def _body(
         self, obj: PssObject, doc: ParsedDoc, indent: str

@@ -1,0 +1,71 @@
+// The DMA transfer of docs/usage/activities.md: the page shows this file and
+// draws its activities live.
+package xfer_pkg {
+    buffer mem_buf {
+        rand bit[32] addr;
+        rand bit[16] len;
+    }
+
+    component dma_c {
+        pool mem_buf bufs;
+        bind bufs *;
+
+        /// Program a channel's descriptor.
+        action configure {
+            rand bit[3] channel;
+        }
+
+        /// Copy one block of memory.
+        action copy {
+            input mem_buf src;
+            output mem_buf dst;
+        }
+
+        /// Fill a block with a pattern.
+        action fill {
+            output mem_buf data;
+        }
+
+        /// Compare a block against the pattern.
+        action check {
+            input mem_buf data;
+        }
+
+        /// Copy one block in bursts.
+        action burst_copy {
+            copy c;
+            rand bit[4] beats;
+
+            activity {
+                repeat (beats) {
+                    c;
+                }
+            }
+        }
+
+        /// Move a block through two channels, and check it if asked.
+        action xfer {
+            configure  cfg;
+            fill       f;
+            copy       c1;
+            burst_copy c2;
+            check      chk;
+            rand bool  verify;
+
+            activity {
+                cfg with { channel < 4; };
+                f;
+                parallel {
+                    c1;
+                    c2;
+                }
+                if (verify) {
+                    chk;
+                }
+                bind f.data c1.src;
+                bind c1.dst chk.data;
+            }
+        }
+        // The page's excerpt ends here.
+    }
+}

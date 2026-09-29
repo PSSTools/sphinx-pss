@@ -47,7 +47,7 @@ from typing import Any
 from docutils import nodes
 from sphinx.util import logging
 
-from ..model.graph import Graph
+from ..model.graph import UNLABELLED_SHAPES, Graph
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,33 @@ _DOT_SHAPES = {
     "decision": "shape=diamond",
     "loop": "shape=hexagon",
     "subroutine": "shape=box, peripheries=2",
+    "action": 'shape=box, style="rounded"',
+    "initial": "shape=circle, style=filled, fillcolor=black, width=0.2, fixedsize=true",
+    "final": "shape=doublecircle, style=filled, fillcolor=black, width=0.15, fixedsize=true",
+    "flow_final": "shape=circle, width=0.25, fixedsize=true",
+    "bar": "shape=box, style=filled, fillcolor=black, height=0.05, width=1.5, fixedsize=true, ordering=out",
+    "hollow_bar": "shape=box, height=0.08, width=1.5, fixedsize=true, ordering=out",
+    "merge": "shape=diamond, width=0.25, height=0.25, fixedsize=true",
+    "note": "shape=note",
+    "parameter": "shape=box",
+}
+
+#: The Graphviz attributes of each edge style.
+_DOT_EDGE_STYLES = {
+    "control": [],
+    # Object flows and constraints relate nodes already placed by control
+    # flow: they mustn't move them.
+    "object": ["style=dashed", "constraint=false"],
+    "constraint": ["style=dotted", "constraint=false"],
+    # Drawn beside its node: both ends share a rank (see `to_dot`).
+    "anchor": ["style=dotted"],
+}
+
+#: The Graphviz attributes of each cluster kind.
+_DOT_CLUSTER_STYLES = {
+    "region": 'style="rounded,dashed"',
+    # Semi-transparent, so it reads on a light page and a dark one.
+    "step": 'style="rounded,filled"; fillcolor="#80808020"',
 }
 
 #: Mermaid's node delimiters for each shape.
@@ -67,6 +94,23 @@ _MERMAID_SHAPES = {
     "decision": ("{", "}"),
     "loop": ("{{", "}}"),
     "subroutine": ("[[", "]]"),
+    "action": ("(", ")"),
+    "initial": ("((", "))"),
+    "final": ("(((", ")))"),
+    "flow_final": ("((", "))"),
+    "bar": ("[", "]"),
+    "hollow_bar": ("[", "]"),
+    "merge": ("{", "}"),
+    "note": (">", "]"),
+    "parameter": ("[", "]"),
+}
+
+#: Mermaid ``style`` lines for the shapes it has no drawing of.
+_MERMAID_STYLES = {
+    "initial": "fill:#000,stroke:#000",
+    "final": "fill:#000,stroke:#000",
+    "bar": "fill:#000,stroke:#000",
+    "hollow_bar": "fill:#fff,stroke:#000",
 }
 
 #: Characters per label line. Diamonds grow with the square of their text, so
@@ -167,7 +211,13 @@ def to_dot(graph: Graph, urls: dict[str, str] | None = None) -> str:
 
     def node_line(n, indent: str) -> str:
         width = _WRAP_DECISION if n.shape == "decision" else _WRAP
-        attrs = [f"label={_dot_label(n.label, width)}", _DOT_SHAPES[n.shape]]
+        if n.shape in UNLABELLED_SHAPES:
+            # A bar's label is its join specification, written beside it.
+            attrs = ['label=""', _DOT_SHAPES[n.shape]]
+            if n.label:
+                attrs.append(f"xlabel={_dot_label(n.label, width)}")
+        else:
+            attrs = [f"label={_dot_label(n.label, width)}", _DOT_SHAPES[n.shape]]
         if n.link and n.link in urls:
             attrs.append(f"URL={_dot_string(urls[n.link])}")
             attrs.append('target="_top"')
@@ -181,7 +231,7 @@ def to_dot(graph: Graph, urls: dict[str, str] | None = None) -> str:
                 continue
             out.append(f"{indent}subgraph cluster_{c.id} {{")
             inner = indent + "    "
-            out.append(f'{inner}label={_dot_label(c.label, _WRAP)}; style="rounded,dashed"; fontsize=9;')
+            out.append(f"{inner}label={_dot_label(c.label, _WRAP)}; {_DOT_CLUSTER_STYLES[c.kind]}; fontsize=9;")
             if c.link and c.link in urls:
                 out.append(f'{inner}URL={_dot_string(urls[c.link])}; target="_top";')
             if c.tooltip:
@@ -199,8 +249,14 @@ def to_dot(graph: Graph, urls: dict[str, str] | None = None) -> str:
             attrs.append(f"label={_dot_string(e.label)}")
         if e.back:
             attrs.append("constraint=false")
+        attrs.extend(_DOT_EDGE_STYLES[e.style])
+        if not e.directed:
+            attrs.append("dir=none")
         suffix = f" [{', '.join(attrs)}]" if attrs else ""
         out.append(f"    {e.src} -> {e.dst}{suffix};")
+    for e in graph.edges:
+        if e.style == "anchor":
+            out.append(f"    {{ rank=same; {e.src}; {e.dst}; }}")
     out.append("}")
     return "\n".join(out) + "\n"
 
@@ -233,12 +289,25 @@ def to_mermaid(graph: Graph, urls: dict[str, str] | None = None) -> str:
             if n.cluster == cluster_id:
                 width = _WRAP_DECISION if n.shape == "decision" else _WRAP
                 opening, closing = _MERMAID_SHAPES[n.shape]
-                out.append(f"{indent}{n.id}{opening}{_mermaid_label(n.label, width)}{closing}")
+                # Mermaid draws no node without text: a space stands in.
+                label = _mermaid_label(n.label, width) if n.label else '" "'
+                out.append(f"{indent}{n.id}{opening}{label}{closing}")
 
     emit(None, "    ")
     for e in graph.edges:
-        arrow = f'-->|"{_mermaid_text(e.label)}"|' if e.label else "-->"
+        if e.style == "control":
+            arrow = "-->"
+        else:
+            arrow = "-.->" if e.directed and e.style != "anchor" else "-.-"
+        if e.label:
+            arrow = f'{arrow}|"{_mermaid_text(e.label)}"|'
         out.append(f"    {e.src} {arrow} {e.dst}")
+    for n in graph.nodes:
+        if n.shape in _MERMAID_STYLES:
+            out.append(f"    style {n.id} {_MERMAID_STYLES[n.shape]}")
+    for c in graph.clusters:
+        if c.kind == "step":
+            out.append(f"    style {c.id} fill:#80808020")
     for n in graph.nodes:
         if n.link and n.link in urls:
             # A URL is taken as written: entity codes would break its fragment.

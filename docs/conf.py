@@ -44,4 +44,9 @@ pss_default_options = {"members": True, "member-order": "source"}
 # their links (docs/usage/diagrams.md).
 graphviz_output_format = "svg"
 
+# The steps page shows markers in an activity. A pssparser that can't read
+# them yet (its AC1) draws the diagram without steps and says so once; the
+# page itself explains what is needed.
+suppress_warnings = ["pss.step_unsupported"]
+
 nitpicky = False

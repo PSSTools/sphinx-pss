@@ -4,6 +4,38 @@
 
 ### Added
 
+- **Activity diagrams** (`docs/usage/activities.md`).
+  `.. pss:activity-diagram:: <action>` draws an action's activity as a UML
+  activity diagram:
+  - traversals are boxes linked to the traversed action's entry;
+  - `parallel` is a fork and a join;
+  - `schedule` has hollow bars in a frame of its own, so it is never read as a
+    `parallel`;
+  - `select`, `if` and `match` are decisions;
+  - loops, `replicate` and `atomic` are titled frames;
+  - `with` constraints are notes;
+  - `bind`s are dashed object flows.
+
+  Several `activity` blocks from `extend` are drawn as the implicit schedule
+  PSS runs them as, and an action with no activity of its own shows its
+  base's. `:depth:` opens compound traversals up to 4 levels, cutting
+  recursion. `:weights:` labels `select` arms with their weights.
+  `:format: outline` or `both` gives the activity as a nested list, which is
+  also what a page shows when the diagram can't be drawn. `:activity-diagram:`
+  on `autopssaction`, `autopsscomponent` and `autopsspackage` puts the diagram
+  in each documented action's entry, and it can be a `pss_default_options`
+  default.
+- **Steps in activities.** `/// Step:` markers in an activity:
+  - label regions of its diagram (`:steps: collapsed` draws one box per step);
+  - give a compound action a step table, with `pss:steps` or `:steps:` and no
+    `:exec:`.
+
+  In `parallel` and `schedule` a marker covers its own branch; in `select` and
+  `match` its own arm. Traversals expand into the traversed action's activity
+  steps, and into an atomic action's `exec body` steps only with
+  `:expand-exec:`. This needs a pssparser that attaches comments to activity
+  statements (its `AC1`); with one that doesn't, the build says so once
+  (`pss.step_unsupported`) and draws no steps.
 - **Step tables.** `.. pss:steps:: <function>`, or `<type>` with
   `:exec: <kind>`, renders a body's programming steps as a table with the
   columns #, Step, Details and Source (`docs/usage/steps.md`). Steps in a

@@ -38,7 +38,29 @@ SHAPES = (
     "decision",  # a condition, with one edge out per outcome
     "loop",  # a count or foreach loop's header
     "subroutine",  # a call shown as one box: the callee's steps are elsewhere
+    # UML activity-diagram nodes (activity-diagrams design 6.2)
+    "action",  # a traversal: a UML CallBehaviorAction
+    "initial",  # where the activity starts (filled circle)
+    "final",  # where it ends (bullseye)
+    "flow_final",  # where one branch of a join_none parallel ends
+    "bar",  # a fork or join of a parallel
+    "hollow_bar",  # a fork or join of a schedule, never mistaken for a parallel's
+    "merge",  # where a decision's arms come back together
+    "note",  # a constraint
+    "parameter",  # the context action's own field, as a bind's end
 )
+
+#: Shapes drawn without their label inside: a bar's label (a join
+#: specification) is written beside it, and the others have none.
+UNLABELLED_SHAPES = frozenset({"initial", "final", "bar", "hollow_bar", "merge"})
+
+#: Edge styles: control flow, object flow (``bind``), the dotted line relating
+#: two scheduled branches, and the dotted line anchoring a note beside its node.
+EDGE_STYLES = ("control", "object", "constraint", "anchor")
+
+#: Cluster kinds: a structural region (a loop, a schedule, an inlined call)
+#: or a programming step, which is shaded so the two stay apart when nested.
+CLUSTER_KINDS = ("region", "step")
 
 
 @dataclasses.dataclass(eq=False)
@@ -63,6 +85,10 @@ class GraphEdge:
     #: A loop's edge back to its start. Back-ends keep it out of the ranking,
     #: so the diagram still reads top to bottom.
     back: bool = False
+    #: One of `EDGE_STYLES`.
+    style: str = "control"
+    #: False for a relation with no direction: two branches scheduled in parallel.
+    directed: bool = True
 
 
 @dataclasses.dataclass(eq=False)
@@ -72,6 +98,8 @@ class Cluster:
     parent: str | None = None
     link: str | None = None
     tooltip: str = ""
+    #: One of `CLUSTER_KINDS`.
+    kind: str = "region"
 
 
 @dataclasses.dataclass(eq=False)
@@ -81,6 +109,9 @@ class Graph:
     nodes: list[GraphNode] = dataclasses.field(default_factory=list)
     edges: list[GraphEdge] = dataclasses.field(default_factory=list)
     clusters: list[Cluster] = dataclasses.field(default_factory=list)
+    #: Lines for under the diagram: what it couldn't draw, and where it came
+    #: from. The directive writes them; back-ends ignore them.
+    caption_notes: list[str] = dataclasses.field(default_factory=list)
 
     def add_node(self, label: str, shape: str, **kwargs) -> GraphNode:
         if shape not in SHAPES:
@@ -89,12 +120,25 @@ class Graph:
         self.nodes.append(node)
         return node
 
-    def add_edge(self, src: GraphNode, dst: GraphNode, label: str = "", *, back: bool = False) -> GraphEdge:
-        edge = GraphEdge(src.id, dst.id, label, back)
+    def add_edge(
+        self,
+        src: GraphNode,
+        dst: GraphNode,
+        label: str = "",
+        *,
+        back: bool = False,
+        style: str = "control",
+        directed: bool = True,
+    ) -> GraphEdge:
+        if style not in EDGE_STYLES:
+            raise ValueError(f"unknown edge style {style!r}")
+        edge = GraphEdge(src.id, dst.id, label, back, style, directed)
         self.edges.append(edge)
         return edge
 
     def add_cluster(self, label: str, **kwargs) -> Cluster:
+        if kwargs.get("kind", "region") not in CLUSTER_KINDS:
+            raise ValueError(f"unknown cluster kind {kwargs['kind']!r}")
         cluster = Cluster(f"c{len(self.clusters) + 1}", label, **kwargs)
         self.clusters.append(cluster)
         return cluster

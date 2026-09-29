@@ -1,0 +1,85 @@
+// Programming steps in an activity: the example of activity-diagrams design
+// section 4.5, and of "Steps in activities" in docs/usage/steps.md.
+package sxfer_pkg {
+    function void write_reg(bit[32] offset, bit[32] value);
+
+    component dma_c {
+        /// Program the channel.
+        action configure {
+            exec body {
+                /// Step: Write the descriptor
+                write_reg(0x10, 0x100);
+                /// Step: Enable the channel
+                write_reg(0x0, 1);
+            }
+        }
+
+        /// Copy one block.
+        action copy { }
+
+        /// Check a block.
+        action check { }
+
+        /// Copy a block in two halves, and check it.
+        action xfer {
+            configure cfg;
+            copy      c1, c2;
+            check     chk;
+
+            activity {
+                /// Step: Configure the channel
+                /// Both halves share one descriptor chain.
+                cfg;
+                /// Step: Move the data
+                parallel {
+                    /// Step: Copy the first half
+                    c1;
+                    /// Step: Copy the second half
+                    c2;
+                }
+                /// Step: Check the result
+                chk;
+            }
+        }
+        // The page's excerpt ends here.
+
+        /// Every control a compound action's step table shows.
+        action shapes {
+            copy c1, c2, c3;
+            rand bool fast;
+
+            activity {
+                /// Step: Race
+                parallel join_first (1) {
+                    /// Step: Copy one way
+                    c1;
+                    /// Step: Copy the other way
+                    c2;
+                }
+                schedule {
+                    /// Step: Early
+                    s1: c1;
+                    /// Step: Middle
+                    s2: c2;
+                    /// Step: Late
+                    s3: c3;
+                    constraint sequence { s1, s2, s3 };
+                }
+                replicate (4) {
+                    /// Step: One copy
+                    c1;
+                }
+                atomic {
+                    /// Step: Uninterrupted
+                    c2;
+                }
+                select {
+                    /// Step: Fast
+                    (fast) [3]: c1;
+                    /// Step: Any time
+                    c2;
+                }
+            }
+        }
+    }
+}

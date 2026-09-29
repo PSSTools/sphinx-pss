@@ -225,13 +225,19 @@ def _flowcharts(app, docname: str) -> list:
 def test_the_steps_page_draws_a_live_flowchart(docs_build) -> None:
     """``S4-DOC-1``: ``set_speed`` as a flowchart, drawn by Graphviz."""
     app, _ = docs_build
-    (chart,) = _flowcharts(app, "usage/steps")
+    (chart,) = [g for g in _flowcharts(app, "usage/steps") if g.title.startswith("the steps of")]
 
     assert chart.title == "the steps of eth_pkg::set_speed"
     assert [n.label for n in chart.nodes if n.shape == "decision"] == ["speed", "(read_reg(0x2A0) & 0x4) == 0"]
     html = (app.outdir / "usage" / "steps.html").read_text()
     assert 'class="graphviz pss-diagram pss-steps-flowchart"' in html
-    assert len(list((app.outdir / "_images").glob("graphviz-*.svg"))) == 2
+    # Two step flowcharts, the steps page's two activity diagrams, and the
+    # activities page's three. Sphinx names an image by its text, and without
+    # a parser that reads activity steps the steps page's two are the same.
+    from sphinx_pss._capability import activity_comments_supported
+
+    images = 7 if activity_comments_supported() else 6
+    assert len(list((app.outdir / "_images").glob("graphviz-*.svg"))) == images
 
 
 def test_the_ethernet_example_draws_the_outline_flowchart(docs_build) -> None:
@@ -266,3 +272,100 @@ def test_the_mermaid_example_is_what_sphinx_pss_writes(docs_build) -> None:
     model = parse_model(fixtures)
 
     assert shown + "\n" == to_mermaid(steps_flowchart(steps_for(model, "eth_pkg::set_speed")))
+
+
+# --- activities (activity-diagrams plan AD2-DOC-1) ----------------------------------
+
+
+def test_the_activities_page_draws_the_example_twice(docs_build) -> None:
+    """``AD2-DOC-1``: the example at depth 1 and 2, drawn by Graphviz."""
+    app, _ = docs_build
+    shallow, deep, entry = _flowcharts(app, "usage/activities")
+
+    assert shallow.title == deep.title == "the activity of xfer_pkg::dma_c::xfer"
+    assert entry.title == "the activity of xfer_pkg::dma_c::burst_copy"
+    assert [n.label for n in shallow.nodes if n.shape == "action"] == [
+        "cfg : configure",
+        "f : fill",
+        "c1 : copy",
+        "c2 : burst_copy ⋔",
+        "chk : check",
+    ]
+    assert [c.label for c in deep.clusters] == ["c2 : burst_copy", "repeat (beats)"]
+    html = (app.outdir / "usage" / "activities.html").read_text()
+    assert html.count('class="graphviz pss-diagram pss-activity-diagram"') == 3
+
+
+def test_the_activities_page_shows_what_the_table_says(docs_build) -> None:
+    """``AD2-DOC-1``: the page's claims about the example hold for the drawing."""
+    app, _ = docs_build
+    shallow = _flowcharts(app, "usage/activities")[0]
+    labels = {e.label for e in shallow.edges}
+
+    assert {"[verify]", "[else]", "data ↔ src", "dst ↔ data"} <= labels
+    assert "note" in {n.shape for n in shallow.nodes}
+    svg = "".join(p.read_text() for p in (app.outdir / "_images").glob("graphviz-*.svg"))
+    assert "activities.html#pss-xfer_pkg.dma_c.configure" in svg
+    assert "activities.html#pss-xfer_pkg.dma_c.copy" in svg
+
+
+def test_the_activities_page_shows_the_outline(docs_build) -> None:
+    """``AD2-DOC-1``: ``:format: outline`` renders the nested list."""
+    from docutils import nodes
+
+    app, _ = docs_build
+    doctree = app.env.get_doctree("usage/activities")
+    (outline,) = [n for n in doctree.findall(nodes.container) if "pss-activity-outline" in n["classes"]]
+
+    assert [line for line in outline.astext().splitlines() if line] == [
+        "cfg : configure with { channel < 4; }",
+        "f : fill",
+        "parallel",
+        "c1 : copy",
+        "c2 : burst_copy",
+        "if verify",
+        "then",
+        "chk : check",
+        "bind f.data c1.src",
+        "bind c1.dst chk.data",
+    ]
+
+
+def test_the_activities_page_puts_a_diagram_in_an_entry(docs_build) -> None:
+    """``AD3-DOC-1``: ``:activity-diagram:`` on ``autopssaction``."""
+    from sphinx import addnodes
+
+    from sphinx_pss.autodoc.diagrams import pss_diagram
+
+    app, _ = docs_build
+    doctree = app.env.get_doctree("usage/activities")
+    entry = next(
+        d for d in doctree.findall(addnodes.desc) if "burst_copy" in d.next_node(addnodes.desc_signature).astext()
+    )
+
+    (diagram,) = list(entry.findall(pss_diagram))
+    assert diagram["pss:target"] == "xfer_pkg::dma_c::burst_copy"
+
+
+def test_the_steps_page_draws_steps_in_an_activity_iff_the_parser_reads_them(docs_build) -> None:
+    """``AD4-DOC-1``: regions and collapse, shown exactly when pssparser attaches the markers."""
+    from sphinx_pss._capability import activity_comments_supported
+
+    app, _ = docs_build
+    regions, collapsed = [g for g in _flowcharts(app, "usage/steps") if g.title.startswith("the activity of")]
+
+    step_clusters = [c.label for c in regions.clusters if c.kind == "step"]
+    boxes = [n.label for n in collapsed.nodes if n.shape == "process"]
+    if activity_comments_supported():
+        assert step_clusters == [
+            "1 Configure the channel",
+            "2 Move the data",
+            "2.1 Copy the first half",
+            "2.2 Copy the second half",
+            "3 Check the result",
+        ]
+        assert boxes == ["1 Configure the channel", "2 Move the data", "3 Check the result"]
+    else:
+        # The page says so; the build warned once (suppressed in docs/conf.py).
+        assert step_clusters == [] and boxes == []
+        assert "Needs a newer pssparser" in (app.outdir / "usage" / "steps.html").read_text()

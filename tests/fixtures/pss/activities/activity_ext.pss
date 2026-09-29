@@ -1,0 +1,9 @@
+// A second activity block for act_pkg::dma_c::multi (activity-diagrams
+// design section 3.4): with the declaration's, it is an implicit schedule.
+package act_pkg {
+    extend action dma_c::multi {
+        activity {
+            chk;
+        }
+    }
+}

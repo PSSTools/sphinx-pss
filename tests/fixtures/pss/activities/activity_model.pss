@@ -1,0 +1,175 @@
+// Activity fixtures (activity-diagrams plan AD0-TEST-1): one activity per
+// construct of design section 5.1, several blocks through extend
+// (activity_ext.pss), inheritance with super, binds, labels and with
+// constraints. It parses and links with no markers.
+package act_pkg {
+    buffer data_buf {
+        rand bit[32] addr;
+    }
+
+    component dma_c {
+        pool data_buf bufs;
+        bind bufs *;
+
+        action configure {
+            rand bit[8] channel;
+        }
+        action copy {
+            input data_buf src;
+            output data_buf dst;
+        }
+        action check {
+            input data_buf data;
+        }
+        action fill {
+            output data_buf data;
+        }
+        abstract action any_xfer { }
+        action burst : any_xfer { }
+
+        // Every construct, once.
+        action all_kinds {
+            configure cfg;
+            copy c1, c2;
+            check chk;
+            fill f;
+            rand bit[4] n;
+            rand bool fast;
+            rand bit[8] arr[4];
+
+            activity {
+                cfg;
+                seq1: sequence {
+                    f;
+                    c1;
+                }
+                parallel {
+                    c1;
+                    c2;
+                }
+                parallel join_none {
+                    c1;
+                    c2;
+                }
+                parallel join_first (1) {
+                    c1;
+                    c2;
+                }
+                parallel join_select (1) {
+                    c1;
+                    c2;
+                }
+                parallel join_branch (b1) {
+                    b1: c1;
+                    c2;
+                }
+                schedule {
+                    s1: c1;
+                    s2: c2;
+                    constraint parallel { s1, s2 };
+                }
+                select {
+                    (fast) [3]: c1;
+                    [1]: c2;
+                    chk;
+                }
+                if (fast) {
+                    c1;
+                } else {
+                    c2;
+                }
+                if (n > 2) chk;
+                match (n) {
+                    [0..3]: c1;
+                    default: c2;
+                }
+                repeat (n) {
+                    c1;
+                }
+                repeat (i : 4) {
+                    c1;
+                }
+                repeat {
+                    c1;
+                } while (n > 0);
+                foreach (e : arr) {
+                    c1;
+                }
+                replicate (4) {
+                    c2;
+                }
+                replicate (j : n) {
+                    c2;
+                }
+                atomic {
+                    c1;
+                    c2;
+                }
+                do configure with { channel == 1; };
+                do any_xfer;
+                constraint { n < 8; }
+                bind f.data c1.src;
+            }
+        }
+
+        // One activity block here, one in activity_ext.pss.
+        action multi {
+            configure cfg;
+            check chk;
+            activity {
+                cfg;
+            }
+        }
+
+        // Inheritance: shadowing with super, and inheriting outright.
+        action base_xfer {
+            configure cfg;
+            activity {
+                cfg;
+            }
+        }
+        action derived_xfer : base_xfer {
+            check chk;
+            activity {
+                super;
+                chk;
+            }
+        }
+        action inherits_only : base_xfer { }
+
+        // A bind to the context action's own input.
+        action xfer_in {
+            input data_buf in_data;
+            copy c1;
+            activity {
+                c1;
+                bind in_data c1.src;
+            }
+        }
+
+        // Two levels, for inlining with a depth.
+        action two_level {
+            configure cfg;
+            derived_xfer d;
+            activity {
+                cfg;
+                d;
+            }
+        }
+
+        // Mutual recursion through type traversals.
+        action ping {
+            activity {
+                select {
+                    do pong;
+                    do configure;
+                }
+            }
+        }
+        action pong {
+            activity {
+                do ping;
+            }
+        }
+    }
+}
