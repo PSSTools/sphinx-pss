@@ -1,20 +1,21 @@
 # CI for psstools/sphinx-pss on Forgejo Actions.
 #
-# Ported from psstools/pssparser's workflow, and the same two constraints apply:
-#
-#  1. No third-party actions. A bare `uses:` resolves against code.forgejo.org
-#     (Forgejo's DEFAULT_ACTIONS_URL), not github.com.
-#  2. Dependencies resolve from git.dvkit.org, not github.com.
+# Ported from psstools/pssparser's workflow, and the same constraint applies:
+# no third-party actions. A bare `uses:` resolves against code.forgejo.org
+# (Forgejo's DEFAULT_ACTIONS_URL), not github.com.
 #
 # The cost question this project had to settle (implementation-plan section 10):
-# pssparser is a C++/Cython extension, so it cannot be pip-installed as a pure
-# wheel. Resolved by **building it from source in the pssparser CI container**,
-# which already carries the ANTLR jar, the C++ toolchain and every interpreter.
-# That costs a few minutes per run and needs no artifact plumbing between repos.
-# If it becomes the bottleneck, the next step is consuming pssparser's published
-# wheel rather than adding a cache -- a cache keyed on a moving upstream branch
-# would go stale silently, which is the failure mode this project can least
-# afford.
+# pssparser is a C++/Cython extension. It used to be built from source here,
+# through ivpm, in the pssparser CI container. It now comes from pssparser's
+# **published wheel on PyPI**, resolved by pip from the floor in pyproject.toml,
+# which is exactly what a user installs. That tests sphinx-pss against the
+# latest release, not against pssparser's moving default branch: a parser
+# change reaches this job only once it is released. The nightly workflow still
+# builds pssparser from source, deliberately unpinned, so upstream drift shows
+# up there first (nightly.yml).
+#
+# The pssparser CI container is kept only for its Python interpreters and dnf:
+# nothing here compiles.
 name: CI
 
 on:
@@ -47,62 +48,33 @@ jobs:
         fi
         echo "OK: no internal identifiers in tracked files"
 
-    - name: Configure ivpm dependency resolution
-      # ivpm.yaml names git.dvkit.org already, but dependencies-of-dependencies
-      # (pyastbuilder, and pssparser's own deps) name github.com. Remap them so
-      # the build does not depend on GitHub.
+    - name: Install sphinx-pss and its dependencies
+      # pip resolves everything, pssparser included, from PyPI.
       run: |
-        mkdir -p ~/.config/ivpm
-        cat > ~/.config/ivpm/config.yaml <<'EOF'
-        git-url-map:
-          - from: "https://github.com/mballance-utils/"
-            to:   "https://git.dvkit.org/mballance-utils/"
-          - from: "https://github.com/psstools/"
-            to:   "https://git.dvkit.org/psstools/"
-          - from: "https://github.com/fvutils/"
-            to:   "https://git.dvkit.org/fvutils/"
-        git-auth:
-          - host: "git.dvkit.org"
-            order: ["https"]
-        EOF
-
-    - name: Fetch and build dependencies
-      # This builds pssparser's native core and Cython extensions into
-      # packages/python. It is the expensive step, and the reason this job runs
-      # in the pssparser CI container rather than a bare ubuntu image.
-      run: |
-        export IVPM_PYTHON=${PY}
-        ${IVPM_PYTHON} -m ivpm update -j 1 -a
-
-    - name: Install sphinx-pss
-      # --no-deps is load-bearing: ivpm has already installed every dependency,
-      # and the pssparser it built from source reports version 0.0.0 (only a
-      # release tag carries a real number). Letting pip resolve would see the
-      # pyproject floor unmet and replace the built parser with a PyPI release,
-      # so the suite would silently test against the wrong parser.
-      run: |
-        . packages/python/bin/activate
-        # ivpm creates packages/python with uv, which installs no pip.
-        python -m ensurepip --upgrade
-        python -m pip install --no-deps --no-build-isolation -e .
+        ${PY} -m venv .venv
+        . .venv/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install -e ".[test,docs]"
+        python -m pip list | grep -i -E "^(pssparser|pygments-pss|sphinx) "
 
     - name: Verify pssparser can extract doc comments
       # sphinx-pss probes pssparser's doc-comment support at first parse.
       # Checking it as its own step means an incapable parser reports as
       # itself rather than as a wall of test failures.
       run: |
-        . packages/python/bin/activate
+        . .venv/bin/activate
         python -c "from sphinx_pss._capability import check_pssparser as c; print('pssparser', c())"
 
     - name: Install Graphviz
-      # Flowcharts are drawn with dot. Without it, the Graphviz tests skip and
-      # the -W docs build below fails on the one missing-dot warning, which
-      # is the point: the published docs must have their diagrams.
+      # Flowcharts and activity diagrams are drawn with dot. Without it, the
+      # Graphviz tests skip and the -W docs build below fails on the one
+      # missing-dot warning, which is the point: the published docs must have
+      # their diagrams.
       run: dnf install -y graphviz
 
     - name: Run the test suite
       run: |
-        . packages/python/bin/activate
+        . .venv/bin/activate
         python -m pytest -m "unit or sphinx or upstream" -q --tb=short
 
     - name: Build the documentation
@@ -110,7 +82,7 @@ jobs:
       # on the test fixtures, which makes this the broadest integration check
       # in the workflow.
       run: |
-        . packages/python/bin/activate
+        . .venv/bin/activate
         python -m sphinx -W -b html docs docs/_build/html
 
     - name: Upload documentation

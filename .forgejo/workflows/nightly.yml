@@ -49,8 +49,11 @@ jobs:
         ${IVPM_PYTHON} -m ivpm update -j 1 -a -d default-dev
 
     - name: Install sphinx-pss
-      # --no-deps: see ci.yml. Resolving would replace the source-built
-      # pssparser (version 0.0.0) with a PyPI release.
+      # --no-deps is load-bearing: ivpm has already installed every dependency,
+      # and the pssparser it built from source reports version 0.0.0 (only a
+      # release tag carries a real number). Resolving would see the pyproject
+      # floor unmet and replace the source-built parser with a PyPI release,
+      # which is what the push CI tests already (ci.yml).
       run: |
         . packages/python/bin/activate
         # ivpm creates packages/python with uv, which installs no pip.
@@ -58,7 +61,7 @@ jobs:
         python -m pip install --no-deps --no-build-isolation -e .
 
     - name: Install Graphviz
-      # See ci.yml: the docs-build test draws flowcharts with dot.
+      # The docs-build test draws flowcharts and activity diagrams with dot.
       run: dnf install -y graphviz
 
     - name: Run the full suite including the corpus
