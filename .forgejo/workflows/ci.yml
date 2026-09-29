@@ -82,7 +82,9 @@ jobs:
       # so the suite would silently test against the wrong parser.
       run: |
         . packages/python/bin/activate
-        pip install --no-deps --no-build-isolation -e .
+        # ivpm creates packages/python with uv, which installs no pip.
+        python -m ensurepip --upgrade
+        python -m pip install --no-deps --no-build-isolation -e .
 
     - name: Verify pssparser can extract doc comments
       # sphinx-pss probes pssparser's doc-comment support at first parse.
