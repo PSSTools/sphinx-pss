@@ -36,7 +36,7 @@ is necessarily installed.
 import os
 import re
 
-BASE = "0.0.1"
+BASE = "0.1.0"
 SUFFIX = ""
 
 __version__ = (BASE, SUFFIX)

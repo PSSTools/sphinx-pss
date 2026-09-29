@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — programming steps and activity diagrams
+
+Procedures and scenarios, drawn from the source: step tables and flowcharts
+from `/// Step:` markers, UML activity diagrams of an action's activity, and
+a `pssparser` checker to migrate existing `// Step:` comments.
 
 ### Added
 
