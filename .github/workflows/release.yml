@@ -1,0 +1,151 @@
+# Release sphinx-pss to PyPI, on GitHub Actions.
+#
+# THE RELEASE PATH. A `v*` tag publishes, but only when the release-authority
+# switch names this forge, as psstools/pssparser does: the switch
+# (https://dvkit.org/.well-known/release-authority.json, emitted from
+# sync-policy.toml) is the one place both forges read, so exactly one of them
+# can ever publish a version. PyPI lets a version be yanked, never reused.
+#
+# sphinx-pss is pure Python, so a release is one wheel and one sdist, built
+# once. Unlike pssparser, the version is COMMITTED (src/sphinx_pss/__version__.py,
+# BASE), and the tag must name it: the build refuses a tag that disagrees with
+# the artifacts it just built, rather than publishing a version nobody chose.
+#
+# `workflow_dispatch` releases an EXISTING tag: a tag push only runs workflows
+# that exist in the tagged commit, so a tag made before this file (v0.1.0) is
+# published by running this workflow from the default branch with that tag.
+# It checks out the tag, not the branch.
+#
+# The suite and the -W docs build run against the tag before anything is
+# uploaded, with pssparser from PyPI, as a user gets it.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "An existing tag to release, such as v0.1.0"
+        required: true
+
+jobs:
+  gate:
+    name: Release authority
+    runs-on: ubuntu-latest
+    outputs:
+      authority: ${{ steps.resolve.outputs.authority }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - id: resolve
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        # Fails closed: this workflow only ever runs to release, so an
+        # unreachable switch stops it. Case-folded because the repository is
+        # PSSTools/sphinx-pss here and sync-policy.toml emits lowercase keys
+        # (see pssparser's ci.yml, where an exact match once fell through to
+        # the default silently). The python is one line on purpose: a
+        # multi-line `python3 -c` body would end this YAML block scalar.
+        run: |
+          set -eu
+          tag="${INPUT_TAG:-${GITHUB_REF#refs/tags/}}"
+          case "$tag" in
+            v[0-9]*) ;;
+            *) echo "::error::'$tag' is not a release tag (v<major>.<minor>.<patch>)"; exit 1 ;;
+          esac
+          url=https://dvkit.org/.well-known/release-authority.json
+          if ! body=$(curl -fsS --max-time 10 "$url"); then
+            echo "::error::release-authority switch unreachable; refusing to publish"
+            exit 1
+          fi
+          auth=$(printf '%s' "$body" | python3 -c 'import json,os,sys; d=json.load(sys.stdin); r=os.environ["GITHUB_REPOSITORY"].lower(); print(d["repos"].get(r) or d["orgs"].get(r.split("/")[0]) or d["default"])')
+          echo "release authority for $GITHUB_REPOSITORY: $auth; releasing $tag"
+          echo "authority=$auth" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Test and build
+    # `needs: gate` is what makes needs.gate.outputs readable at all: without
+    # it the authority is the empty string and this never runs, silently.
+    needs: gate
+    if: ${{ needs.gate.outputs.authority == 'github' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Graphviz
+        # The docs build draws flowcharts and activity diagrams with dot, and
+        # -W fails on a missing dot: the published docs must have diagrams.
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
+      - name: Install sphinx-pss
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m pip install -e ".[test,docs]"
+          python -m pip list | grep -i -E "^(pssparser|pygments-pss|sphinx) "
+
+      - name: Run the test suite
+        run: python -m pytest -m "unit or sphinx or upstream" -q --tb=short
+
+      - name: Build the documentation
+        run: python -m sphinx -W -b html docs docs/_build/html
+
+      - name: Build the distributions
+        run: python -m build --outdir dist .
+
+      - name: Check the distributions name the tag
+        env:
+          TAG: ${{ needs.gate.outputs.tag }}
+        run: |
+          set -eu
+          version="${TAG#v}"
+          ls dist
+          test -f "dist/sphinx_pss-${version}-py3-none-any.whl" || {
+            echo "::error::no wheel for $version: tag $TAG disagrees with BASE in src/sphinx_pss/__version__.py"; exit 1; }
+          test -f "dist/sphinx_pss-${version}.tar.gz" || {
+            echo "::error::no sdist for $version"; exit 1; }
+          test "$(ls dist | wc -l)" -eq 2 || { echo "::error::unexpected files in dist"; exit 1; }
+          python -m twine check --strict dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: [gate, build]
+    if: ${{ needs.gate.outputs.authority == 'github' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Upload
+        # --skip-existing is twine's own behaviour, not a guess about registry
+        # state, so a re-run after a successful upload is not an error.
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "${TWINE_PASSWORD:-}" ]; then
+            echo "::error::PYPI_API_TOKEN is not available to this repository"
+            exit 1
+          fi
+          python -m pip install twine
+          python -m twine upload --skip-existing dist/*
