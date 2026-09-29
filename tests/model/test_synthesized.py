@@ -1,8 +1,9 @@
 """P1-TEST-5 — compiler-injected members are filtered, real ones are not.
 
-The rule is ``lineno < 0``, but applying it blindly is wrong: some node types
-never receive a location at all, and enum values are the case that bites
-(finding ``U-2``). These tests pin both halves.
+The rule is ``lineno < 0``, but applying it blindly is wrong: a node type that
+never receives a location (a function parameter) must be exempt, while one that
+does (an enum value, since ``U-2`` was fixed upstream) must keep it. These tests
+pin both halves.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ class _FakeNode:
         return self._loc
 
 
-class EnumItem(_FakeNode):
+class FunctionParamDecl(_FakeNode):
     """A node type that legitimately has no location."""
 
 
@@ -43,9 +44,8 @@ def test_a_negative_line_marks_a_synthesized_node() -> None:
 
 
 def test_unlocated_node_types_are_exempt() -> None:
-    """Without this, every enum value disappears from the documentation."""
-    assert "EnumItem" in UNLOCATED_NODE_TYPES
-    assert not is_synthesized(EnumItem(-1))
+    assert "FunctionParamDecl" in UNLOCATED_NODE_TYPES
+    assert not is_synthesized(FunctionParamDecl(-1))
 
 
 def test_injected_members_do_not_appear(sample_model) -> None:
@@ -60,13 +60,17 @@ def test_injected_members_do_not_appear(sample_model) -> None:
 
 def test_enum_values_survive(sample_model) -> None:
     values = [
-        obj.name
+        obj
         for root in build_objects(sample_model)
         for obj in root.walk()
         if obj.kind == "enum_item"
     ]
 
-    assert values == ["INCREMENT", "FIXED", "WRAP"]
+    assert [v.name for v in values] == ["INCREMENT", "FIXED", "WRAP"]
+    assert all(v.location is not None for v in values), (
+        "enum values carry their own location (U-2), so they can have a "
+        "[source] link"
+    )
 
 
 def test_a_real_member_named_like_an_injected_one_is_kept(tmp_path) -> None:

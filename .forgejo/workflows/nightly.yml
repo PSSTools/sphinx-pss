@@ -1,7 +1,7 @@
 # Nightly corpus run for psstools/sphinx-pss.
 #
 # The `corpus` marker is opt-in (pyproject.toml deselects it by default) because
-# it runs the model over the pssparser test corpus and the PSS standard library
+# it runs the model over pss-corpus (fetched into packages/pss-corpus by ivpm)
 # and is slow. It is also the check most likely to surface an upstream parser
 # change, so it runs every night against whatever pssparser's default branch
 # currently is -- deliberately unpinned, so drift shows up here rather than in
@@ -42,14 +42,22 @@ jobs:
         EOF
 
     - name: Fetch and build dependencies
+      # default-dev, named explicitly: it is the dep-set that carries
+      # pss-corpus, which the corpus tests fail without (tests/corpus/conftest.py).
       run: |
         export IVPM_PYTHON=${PY}
-        ${IVPM_PYTHON} -m ivpm update -j 1 -a
+        ${IVPM_PYTHON} -m ivpm update -j 1 -a -d default-dev
 
     - name: Install sphinx-pss
+      # --no-deps: see ci.yml. Resolving would replace the source-built
+      # pssparser (version 0.0.0) with a PyPI release.
       run: |
         . packages/python/bin/activate
-        pip install -e .[test,docs] --no-build-isolation
+        pip install --no-deps --no-build-isolation -e .
+
+    - name: Install Graphviz
+      # See ci.yml: the docs-build test draws flowcharts with dot.
+      run: dnf install -y graphviz
 
     - name: Run the full suite including the corpus
       run: |

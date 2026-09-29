@@ -124,3 +124,145 @@ def test_the_inventory_is_exported(docs_build) -> None:
 
     assert (pathlib.Path(app.outdir) / "objects.inv").exists()
     assert "dma_pkg::Dma::Xfer" in app.env.domains["pss"].objects
+
+
+def test_the_steps_page_shows_the_fixture(docs_build) -> None:
+    """The page's first example is included from ``steps_pkg.pss`` by marker
+    text, so an edit to the fixture that moves those lines shows up here."""
+    from docutils import nodes
+
+    app, _ = docs_build
+    first = next(app.env.get_doctree("usage/steps").findall(nodes.literal_block)).astext()
+
+    assert "function void init_mac(bool rmii) {" in first
+    assert "/// Step: Reset the MAC" in first
+    assert "component mac_c" not in first
+
+
+def _step_tables(app, docname: str) -> list[list[tuple[str, str]]]:
+    """Each step table on a page, as ``(number, title)`` rows, header left out."""
+    from docutils import nodes
+
+    tables = []
+    for table in app.env.get_doctree(docname).findall(nodes.table):
+        if "pss-steps" not in table["classes"]:
+            continue
+        rows = list(table.findall(nodes.row))[1:]
+        tables.append([
+            (row[0].astext(), row[1].children[0].astext().strip())
+            for row in rows
+        ])
+    return tables
+
+
+def test_the_steps_page_renders_each_live_table(docs_build) -> None:
+    """``S3-DOC-1``: every table on the page is rendered from the fixtures by
+    the build, so each one's rows are checked here."""
+    app, _ = docs_build
+    tables = _step_tables(app, "usage/steps")
+
+    assert len(tables) == 5
+    init_mac, set_speed, linked, flush_rx, mac_c = tables
+    assert init_mac == [
+        ("1", "Reset the MAC"),
+        ("2", "Wait for the reset to complete"),
+        ("3", "Initialize the MIIM interface"),
+        ("3.1", "Select the interface mode"),
+        ("3.2", "Set the MDC clock divider"),
+        ("4", "Enable the receiver"),
+    ]
+    assert set_speed == [
+        ("1", "Program the speed"),
+        ("", "When SPEED_10:"),
+        ("1.1", "Select 10 Mbps"),
+        ("", "When SPEED_100:"),
+        ("1.2", "Select 100 Mbps"),
+        ("2", "Poll the PHY until the link is up"),
+        ("2.1", "Read the PHY status"),
+        ("3", "Settle"),
+        ("3.1", "Wait one MDC period"),
+    ]
+    assert ("", "Follow the steps of init_miim") in linked
+    assert "3.1" not in [number for number, _ in linked]
+    assert flush_rx[-1] == ("", "Repeat from step 1 (flush_rx)")
+    assert ("", "Added by an extension") in mac_c
+    assert mac_c[-1] == ("2", "Report that the MAC is up")
+
+
+def test_the_steps_page_shows_the_source_of_each_table(docs_build) -> None:
+    """The literal includes are by marker text; this catches one that drifts."""
+    app, _ = docs_build
+    text = app.env.get_doctree("usage/steps").astext()
+
+    assert "function void set_speed(speed_e speed, int retries) {" in text
+    assert "function void drain_one(int n) {" in text
+    assert "extend component mac_c {" in text
+    assert "/// Step: Report that the MAC is up" in text
+
+
+def test_the_ethernet_example_renders_both_numberings(docs_build) -> None:
+    """``S3-DOC-2``: the FRM's 1 → a) → i. structure, and the decimal default."""
+    app, _ = docs_build
+    outline, decimal, shallow, component = _step_tables(app, "examples/steps")
+
+    assert [number for number, _ in outline] == [
+        "1", "a)", "b)", "c)", "d)", "2", "a)", "b)", "i.", "ii.", "iii.", "iv.", "c)", "3",
+    ]
+    assert [title for _, title in outline] == [title for _, title in decimal]
+    assert decimal[8] == ("2.2.1", "Reset the RMII module, if RMII is in use")
+    assert [number for number, _ in shallow] == ["1", "1.1", "1.2", "1.3", "1.4", "2", "2.1", "2.2", "2.3", "3"]
+    assert component[0] == ("1", "Bring up the Ethernet port")
+    assert component[-1] == ("1.3", "Enable the controller")
+
+
+def _flowcharts(app, docname: str) -> list:
+    """Each step flowchart on a page, as the graph the build drew."""
+    from sphinx_pss.autodoc.diagrams import pss_diagram
+
+    return [node["graph"] for node in app.env.get_doctree(docname).findall(pss_diagram)]
+
+
+def test_the_steps_page_draws_a_live_flowchart(docs_build) -> None:
+    """``S4-DOC-1``: ``set_speed`` as a flowchart, drawn by Graphviz."""
+    app, _ = docs_build
+    (chart,) = _flowcharts(app, "usage/steps")
+
+    assert chart.title == "the steps of eth_pkg::set_speed"
+    assert [n.label for n in chart.nodes if n.shape == "decision"] == ["speed", "(read_reg(0x2A0) & 0x4) == 0"]
+    html = (app.outdir / "usage" / "steps.html").read_text()
+    assert 'class="graphviz pss-diagram pss-steps-flowchart"' in html
+    assert len(list((app.outdir / "_images").glob("graphviz-*.svg"))) == 2
+
+
+def test_the_ethernet_example_draws_the_outline_flowchart(docs_build) -> None:
+    """``S4-DOC-1``: ``:format: both`` gives the table and a flowchart of the same steps."""
+    app, _ = docs_build
+    (chart,) = _flowcharts(app, "examples/steps")
+    outline = _step_tables(app, "examples/steps")[0]
+
+    boxes = [n.label for n in chart.nodes if n.shape == "process"]
+    assert boxes == [f"{number} {title}" for number, title in outline]
+    assert [c.label for c in chart.clusters] == ["init_controller", "init_mac", "init_miim"]
+
+
+def test_the_mermaid_example_is_what_sphinx_pss_writes(docs_build) -> None:
+    """``S4-DOC-2``: the diagrams page's Mermaid text, regenerated from the fixture."""
+    import glob
+
+    from docutils import nodes
+
+    from sphinx_pss.autodoc.diagrams import to_mermaid
+    from sphinx_pss.model.parse import parse_model
+    from sphinx_pss.model.steps import steps_for
+    from sphinx_pss.model.steps_flowchart import steps_flowchart
+
+    app, _ = docs_build
+    shown = next(
+        block.astext()
+        for block in app.env.get_doctree("usage/diagrams").findall(nodes.literal_block)
+        if "diagram-example-mermaid" in block["ids"]
+    )
+    fixtures = sorted(glob.glob(str(DOCS_DIR.parent / "tests" / "fixtures" / "pss" / "steps" / "*.pss")))
+    model = parse_model(fixtures)
+
+    assert shown + "\n" == to_mermaid(steps_flowchart(steps_for(model, "eth_pkg::set_speed")))

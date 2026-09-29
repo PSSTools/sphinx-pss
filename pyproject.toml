@@ -26,13 +26,14 @@ classifiers = [
 ]
 dependencies = [
     "sphinx>=8.0",
-    # Installer advice, not the run-time gate. pssparser versions as
-    # <PSS major>.<PSS minor>.<patch>, so the number names the LRM revision
-    # targeted rather than any capability; what this project actually needs is
-    # the doc-comment rework, asserted at run time. Kept a floor rather than a
-    # pin so a parser retargeted to a newer LRM still resolves.
-    # See docs/design/pssparser-followup-plan.md section 4.
-    "pssparser>=3.0.3",
+    # A PSS 3.1 parser. pssparser versions as <PSS major>.<PSS minor>.<patch>,
+    # so this names the LRM revision targeted, not a capability: the
+    # doc-comment support this project needs is asserted at run time by
+    # sphinx_pss._capability. 3.1.0 is the first release targeting 3.1, and the
+    # suite passes against every published 3.1 release. A floor rather than a
+    # pin, so a parser retargeted to a newer LRM still resolves. See
+    # design/pssparser-followup-plan.md section 4.
+    "pssparser>=3.1.0",
     # The PSS Pygments lexer. A hard dependency rather than an extra: without
     # it a ``pss`` code block renders as plain text, and warns -- failing any
     # ``-W`` build -- in exactly the projects this extension exists to serve.
@@ -45,11 +46,25 @@ dependencies = [
 test = [
     "pytest>=8.0",
     "beautifulsoup4",
+    # tests/corpus reads pss-corpus's manifest.toml; tomllib is stdlib from 3.11.
+    "tomli; python_version < '3.11'",
+    # The mermaid diagram back-end's tests; they skip without it.
+    "sphinxcontrib-mermaid",
 ]
 docs = [
     "myst-parser",
     "furo",
 ]
+# pss_diagrams = "mermaid". The graphviz back-end needs only Sphinx, plus
+# Graphviz's dot, which isn't a Python package.
+mermaid = [
+    "sphinxcontrib-mermaid",
+]
+
+# The SPSS001 migration checker (sphinx_pss.checkers), for `pssparser` on the
+# command line. It is off until a project enables it.
+[project.entry-points."pssparser.extensions"]
+sphinx-pss = "sphinx_pss.checkers"
 
 [project.urls]
 # Deliberately only a Homepage, and not a repository link: this project lives
@@ -74,7 +89,7 @@ testpaths = ["tests"]
 markers = [
     "unit: pure-Python tests with no Sphinx application",
     "sphinx: integration tests driving a Sphinx build over tests/roots/",
-    "corpus: slow tests over the pssparser corpus and the PSS standard library (opt-in)",
+    "corpus: slow tests over pss-corpus (opt-in; packages/pss-corpus or $PSS_CORPUS)",
     "upstream: asserts a pssparser behavior sphinx-pss depends on; a failure, not a skip",
 ]
 addopts = "-m 'not corpus'"

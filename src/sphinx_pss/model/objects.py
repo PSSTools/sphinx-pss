@@ -92,6 +92,28 @@ class SourceRef:
         return f"{self.path}:{self.line}"
 
 
+@dataclasses.dataclass(frozen=True)
+class DocSource:
+    """Where each line of an element's doc comment was written.
+
+    ``raw_doc`` is normalized by the parser — markers stripped, dedented,
+    leading and trailing blank lines dropped — so its line numbers are not the
+    comment's. ``lines[i]`` is the source line of ``raw_doc``'s line ``i``,
+    which is what lets a reStructuredText error inside a doc comment be
+    reported against the ``.pss`` file rather than the page that rendered it.
+    """
+
+    path: str
+    #: 1-based source line of each line of ``raw_doc``, in order.
+    lines: tuple[int, ...]
+
+    def line_of(self, index: int) -> int:
+        """Source line of ``raw_doc`` line ``index`` (0-based), clamped."""
+        if not self.lines:
+            return 0
+        return self.lines[min(max(index, 0), len(self.lines) - 1)]
+
+
 #: How a member came to be part of the type it appears in.
 PROVENANCE_DECLARATION = "declaration"
 PROVENANCE_EXTENSION = "extension"
@@ -208,9 +230,18 @@ class PssObject:
     signature: str = ""
     type_ref: str | None = None
     extends: str | None = None
+    #: The linker's resolution of ``type_ref`` / ``extends`` as a qualified
+    #: name, when the model is linked and the reference is a plain path through
+    #: the symbol tree. `sphinx_pss.model.index` prefers it to resolving the
+    #: written name, which cannot see through an import when several packages
+    #: declare the same name.
+    type_target: str | None = None
+    extends_target: str | None = None
     template_params: list[TemplateParam] = dataclasses.field(default_factory=list)
 
     raw_doc: str | None = None
+    #: Where ``raw_doc``'s lines were written, when the parser reports it.
+    doc_source: DocSource | None = None
     annotations: list[Annotation] = dataclasses.field(default_factory=list)
     doc_style: str | None = None
 

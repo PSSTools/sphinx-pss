@@ -1,5 +1,113 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Step tables.** `.. pss:steps:: <function>`, or `<type>` with
+  `:exec: <kind>`, renders a body's programming steps as a table with the
+  columns #, Step, Details and Source (`docs/usage/steps.md`). Steps in a
+  nested block are sub-steps. An `if`, `match` or loop that holds steps is a
+  row with its condition as written. A call to a function with steps brings
+  its steps in as sub-steps (`:expand-calls: inline`, the default), or links
+  to it (`link`); `:depth:` limits how far, and recursion is cut with a
+  reference back. `exec` blocks added by `extend` follow the declaration's,
+  in file order. Numbering is generated: `:numbering: decimal` (1, 1.1) or
+  `outline` (1, a), i.). The `autopssfunction`, `autopssaction` and
+  `autopsscomponent` directives take `:steps:` with the same options; it is
+  rejected in `pss_default_options`. Step titles and details are
+  reStructuredText, and a markup error in one is reported at its `.pss` line.
+- **Step flowcharts.** `:format: flowchart` draws a body's steps as a
+  flowchart, and `:format: both` shows the table and then the flowchart. Steps
+  are boxes, conditions diamonds labelled as written, loops draw a back-edge,
+  a called function's steps are a frame named after it, and a linked call is
+  one box that links to the callee's entry. Each shape shows its source line
+  on hover.
+- **`SPSS001` migration checker.** Installing `sphinx-pss` registers a
+  `pssparser` extension with the checker `sphinx-pss-steps`. Enabled with
+  `enabled = true` under `[checker.sphinx-pss-steps]` in `.pssparser.toml`, it
+  reports each plain `//` or `/* */` comment line that would be a step marker
+  as a `///` or `/** */` comment. It is off by default, so a `pssparser` run is
+  unchanged until a project turns it on.
+- **Diagram back-end** (`docs/usage/diagrams.md`). `pss_diagrams` now does
+  something: `graphviz` (the default, through `sphinx.ext.graphviz`, which
+  `sphinx-pss` now loads), `mermaid` (through `sphinxcontrib-mermaid`, which
+  the project adds to its extensions) or `off`. A missing `dot`, or Mermaid
+  without its extension, is one `pss.diagrams` warning per build, not a failed
+  build; a flowchart that can't be drawn is shown as its table. Diagram text
+  is the same on every build.
+- **`pss.step_prelude_call`**: in a body a step table shows, a call outside
+  every step is reported at its line, once per build, since the table leaves
+  it out. Declarations and conditions are exempt.
+- **Programming-step markers are read and checked.** A `/// Step: <title>` or
+  `/** Step: … */` comment inside a function body or `exec` block marks a step
+  of a programming procedure (`docs/usage/steps.md`). Every
+  build lints markers across the whole model and reports, at the comment's
+  line in the `.pss` file, a near miss such as `/// step: reset`
+  (`pss.step_syntax`), a marker outside any body (`pss.step_misplaced`), and a
+  marker with no title or no statements (`pss.step_empty`). Plain `//` and
+  `/* */` comments are never read, so existing code produces no warnings: the
+  whole `pss-corpus` produces none.
+
+### Changed
+
+- **Requires `pssparser` 3.1.0 or later** (was 3.0.3), a parser targeting PSS
+  3.1. A floor, not a pin. The run-time capability probe is unchanged and still
+  decides whether a parser is usable; the suite was run against every published
+  3.1 release (3.1.0–3.1.7) and passes on each.
+
+- **The `pssparser` gate is a capability probe, not a version floor.** The
+  first parse of a build parses a few lines of PSS in memory and fails hard
+  unless a doc comment on an attributed field (`rand int f;`) arrives attached
+  and normalized. `pssparser` source trees now report version `0.0.0` (only a
+  release tag carries a number), so the old `>= 3.0.3` floor rejected every
+  working-tree build. The check also moved from import time to first parse.
+  `sphinx_pss._version_floor` is now `sphinx_pss._capability`.
+
+- **The `pssparser` workarounds are retired** (design
+  `pssparser-followup-plan.md` §4.4), now that `U-1` through `U-6` are fixed
+  upstream. Doc comments are read from the linked symbol for every kind; the
+  `(fileid, lineno)` declaration index that recovered package and enum docs is
+  gone, as is the second parse that recovered a model after a failed link.
+  Each fix the model now depends on is pinned by an `upstream` guard test.
+- **Type references use the linker's resolution** where it is a plain path to
+  a documented object (`U-3`). A name visible only through an `import`, or
+  through a package alias, and declared in more than one package used to render
+  unlinked; it now links to the declaration the linker chose. Written names are
+  still resolved by scope when there is no such path.
+- **The model is parsed with `collect_comments`**, the groundwork for
+  programming steps (`design/programming-steps-design.md`). No visible change:
+  the object model is identical with and without it, over the test fixtures
+  and every parseable `pss-corpus` file, and a test keeps it so. Parse + link
+  over the corpus is about 2% slower.
+- **`pss-corpus` is a development dependency** (`default-dev` in `ivpm.yaml`),
+  read by the opt-in `corpus` tests from `packages/pss-corpus`, `$PSS_CORPUS`
+  or a sibling checkout. Selecting those tests without a corpus fails rather
+  than skips. Only the test extra gains a dependency (`tomli`, on Python 3.10).
+
+### Fixed
+
+- **Warnings about a doc comment now point at the comment.** A reStructuredText
+  error inside a doc comment was reported against the page that rendered it
+  (`index.rst:91`, in a six-line file), and a doc-field cross-validation
+  warning against the declaration's line plus an offset, which missed the
+  comment above it. Both now report the line in the `.pss` file. Each object
+  carries a `doc_source` mapping its normalized doc-comment lines back to
+  source, built from the parser's `getDocLocation()` / `getDocRaw()`.
+- **`import` and prototype-only functions lost their signature**:
+  `import target function void poke(bit[32] addr)` rendered as `void poke()`,
+  with no parameters and no return type. Degraded builds
+  (`pss_tolerate_link_errors`) dropped such functions altogether.
+- **An in-line `covergroup` was documented as `package <covergroup>`.**
+  Anonymous scopes are skipped; covergroups are not documented yet.
+- **Annotation parameters were keyed by an object repr**
+  (`<pssparser.ast.ExprId object at …>`) rather than by their name.
+- **Function parameters were indexed under their bare name**, so two functions
+  sharing a parameter name (`f(int i0)`, `g(int i0)`) produced duplicate object
+  descriptions and a duplicate-ID error under `-W`. Parameters are now
+  qualified by their function (`p::f::i0`). Found by rendering the
+  `pss-corpus` examples.
+
 ## 0.0.1 — first release
 
 The first working vertical slice: a `.pss` source tree in, a documented Sphinx

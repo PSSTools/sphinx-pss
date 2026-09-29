@@ -1,0 +1,20 @@
+package loc_pkg {
+    buffer data_b { }
+
+    /**
+     *
+     * A struct whose summary starts two lines into its comment.
+     *
+     * This paragraph has a broken `role in it.
+     */
+    struct S { }
+
+    component C {
+        /// An action whose doc names a flow object it does not declare.
+        ///
+        /// :input missing_b: documented but never declared.
+        action A {
+            input data_b in_b;
+        }
+    }
+}

@@ -70,7 +70,7 @@ Prerequisite for everything. No PSS logic yet.
 |---|---|---|
 | ☑ `P0-TEST-1` | `tests/conftest.py` + pytest config registering `unit`/`sphinx`/`corpus`/`upstream` markers; fixture dirs | `pytest -m unit` runs (0 tests OK) |
 | ☑ `P0-TEST-2` | `tests/test_setup.py` — extension loads in a bare app, registers the `pss` domain and all config values | green; the `pss` domain assertion landed with `P1-IMPL-13` (`tests/domain/test_directives.py`) |
-| ☑ `P0-TEST-3` | **Version floor**, not a capability probe (enhancement-plan §8): `sphinx_pss` asserts `pssparser >= 3.1.0` at import with an actionable message; `tests/test_version_floor.py` covers it | assertion fires on an older parser |
+| ☑ `P0-TEST-3` | **Capability probe** (followup-plan §4.2; replaced the original version floor): the first parse of a build parses an in-memory probe and fails hard unless an attributed field's doc comment arrives attached and normalized; the version appears only in the message. `tests/test_capability.py` covers it | probe fails on a parser without the doc-comment rework |
 
 ### Docs
 | ID | Task | Done when |
@@ -205,7 +205,7 @@ Four more gaps surfaced while grounding the builder against the real linked tree
 | ☐ `P2-IMPL-2` | `model/index.py`: **relation tables** — `produces[type]`, `consumes[type]`, `locks[type]`, `shares[type]`, `instantiates[comp]`, `extends[type]`, `derived[type]` (design §6.1). Built once with the index | tables correct on a multi-package fixture |
 | ☐ `P2-IMPL-3` | Render flow on action pages: inputs/outputs/claims as a linked field list, driven by `FlowSpec` and reconciled with any `:input:`/`:output:` doc fields | action page shows its flow signature |
 | ☐ `P2-IMPL-4` | Render **producer/consumer tables** on flow-object type pages; `:producers-consumers:` option and `autopssbuffer`/`autopssstream`/`autopssstate`/`autopssresource` directives (design §9.1) | buffer page lists producing/consuming actions with links |
-| ☐ `P2-IMPL-5` | `autodoc/diagrams.py`: shared diagram backend — Graphviz via `sphinx.ext.graphviz`, `pss_diagrams` config (`graphviz`/`mermaid`/`off`), **graceful degradation** to a warning + skipped node when `dot` is absent | backend selectable; no `dot` does not fail the build |
+| ☑ `P2-IMPL-5` | `autodoc/diagrams.py`: shared diagram backend — Graphviz via `sphinx.ext.graphviz`, `pss_diagrams` config (`graphviz`/`mermaid`/`off`), **graceful degradation** to a warning + skipped node when `dot` is absent | backend selectable; no `dot` does not fail the build. Done 2026-09-29 by programming-steps plan S4, with clusters and node links (`P3-IMPL-2a`); the IR is `model/graph.py`. One warning per build, not per diagram |
 | ☐ `P2-IMPL-6` | **Flow dataflow diagram** — bipartite actions/flow-objects graph, scoped to a package, component, or the neighborhood of one action; `:flow-diagram:` option + `pss:flow-diagram::` directive (design §9.2) | diagram node emitted with correct edges |
 | ☐ `P2-IMPL-7` | **Component instance tree** — component-typed fields form the static hierarchy; annotate pools and `bind` statements on nodes; `:component-diagram:` (design §9.4) | tree diagram for the fixture top |
 | ☐ `P2-IMPL-8` | **Extension provenance rendering** — "Added by `extend action Xfer` (`dma_ext.pss:14`)" labels on members; "Extended by" list on type pages; `:show-extensions:` (design §9.5) | labels and list render |
@@ -219,7 +219,7 @@ Four more gaps surfaced while grounding the builder against the real linked tree
 | ☐ `P2-TEST-2` | `tests/model/test_flow.py` — `FlowSpec` extraction incl. arrays and inherited flow refs | green |
 | ☐ `P2-TEST-3` | `tests/model/test_relations.py` — every relation table against hand-computed expected values on the fixture | green |
 | ☐ `P2-TEST-4` | `tests/autodoc/test_flow_render.py` (`sphinx`) — producer/consumer tables, links resolve, ordering deterministic | green |
-| ☐ `P2-TEST-5` | `tests/autodoc/test_diagrams.py` (`sphinx`) — flow, component, inheritance diagrams emit correct nodes; **skips cleanly without `dot`**; `pss_diagrams="off"` suppresses | green with and without Graphviz |
+| ◐ `P2-TEST-5` | `tests/autodoc/test_diagrams.py` (`sphinx`) — flow, component, inheritance diagrams emit correct nodes; **skips cleanly without `dot`**; `pss_diagrams="off"` suppresses | green with and without Graphviz. The back-end half exists (steps S4, through step flowcharts); flow, component and inheritance cases join it with `P2-IMPL-6`, `-7` and `-9` |
 | ☐ `P2-TEST-6` | `tests/autodoc/test_extensions.py` (`sphinx`) — provenance labels, "Extended by" list, `:show-extensions:` off by default | green |
 | ☐ `P2-TEST-7` | `tests/autodoc/test_inherited.py` (`sphinx`) — `:inherited-members:` over the 3-level chain, correct base attribution | green |
 | ☐ `P2-TEST-8` | Determinism guard — build the same fixture twice, assert byte-identical doctrees (relation tables and diagram edges must not depend on dict/set ordering) | green |
@@ -228,7 +228,7 @@ Four more gaps surfaced while grounding the builder against the real linked tree
 | ID | Task | Done when |
 |---|---|---|
 | ☐ `P2-DOC-1` | `docs/usage/flow.md` — documenting flow objects and resources; how producer/consumer tables are derived; what the `:input:`/`:output:`/`:lock:`/`:share:` fields add over the AST | builds clean |
-| ☐ `P2-DOC-2` | `docs/usage/diagrams.md` — flow, component, inheritance diagrams; Graphviz prerequisite; degradation behavior; `pss_diagrams` | builds clean |
+| ◐ `P2-DOC-2` | `docs/usage/diagrams.md` — flow, component, inheritance diagrams; Graphviz prerequisite; degradation behavior; `pss_diagrams` | builds clean. Page exists (steps S4): back-ends, prerequisite, degradation, `pss_diagrams`; the diagram kinds are added as they land |
 | ☐ `P2-DOC-3` | `docs/usage/extensions.md` — how `extend` is documented and why provenance matters | builds clean |
 | ☐ `P2-DOC-4` | Extend `docs/examples/sample.md` (or add `docs/examples/flow.md`) with live flow tables and diagrams | rendered in the build |
 
@@ -364,6 +364,7 @@ When it is picked up, the work is additive because the seams exist from Phase 1:
 | P2 PSS differentiators | ☐ | ☐ | ☐ | `P2-ACC` ☐ | not started |
 | P3 Activities + whole tree + stdlib | ☐ | ☐ | ☐ | `P3-ACC` ☐ | not started |
 | P4 Traceability + coverage + polish | ☐ | ☐ | ☐ | `P4-ACC` ☐ | not started |
+| Programming steps (proposed §9.9) — tracked in [`programming-steps-plan.md`](programming-steps-plan.md); its S4 delivers `P2-IMPL-5` | ☑ | ☑ | ☑ | `S3-ACC` ☑ `S4-ACC` ☑ | S0–S2 done 2026-09-28; S3 (step tables), S4 (flowcharts, `P2-IMPL-5`) and S5 (migration checker) done 2026-09-29 |
 | Deferred: `@doc` annotations | ☐ | ☐ | ☐ | — | unscheduled (deprioritized; G4 resolved) |
 
 > Update this table and the per-item boxes as work lands; append PR/commit refs next to checked items.

@@ -32,16 +32,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .__version__ import get_version
-from ._version_floor import check_pssparser_version
 
 if TYPE_CHECKING:
     from sphinx.application import Sphinx
 
 __version__ = get_version()
-
-# Fail at import rather than mid-build. See _version_floor for why this is an
-# assertion and not a capability probe.
-check_pssparser_version()
 
 
 def setup(app: Sphinx) -> dict[str, Any]:

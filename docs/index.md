@@ -21,6 +21,8 @@ type came from when that type is spread across `extend` sites.
 getting-started
 usage/native-style
 usage/directives
+usage/steps
+usage/diagrams
 ```
 
 ```{toctree}
@@ -28,6 +30,7 @@ usage/directives
 :caption: Examples
 
 examples/sample
+examples/steps
 ```
 
 ## Project status

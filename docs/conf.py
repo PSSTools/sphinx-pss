@@ -40,4 +40,8 @@ pss_doc_style = "native"
 pss_document_stdlib = False
 pss_default_options = {"members": True, "member-order": "source"}
 
+# Flowcharts are drawn by Graphviz; SVG stays sharp at any zoom and keeps
+# their links (docs/usage/diagrams.md).
+graphviz_output_format = "svg"
+
 nitpicky = False

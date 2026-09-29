@@ -108,38 +108,6 @@ def test_the_tree_survives_traversal_after_link(sample_sources) -> None:
     assert walk(model.root) > 50  # and again, after the first traversal
 
 
-def test_declaration_index_recovers_package_and_enum_docs(sample_model) -> None:
-    """Finding ``U-1``: the declaration index recovers what the linked tree
-    could not reach.
-
-    The upstream gap this works around is **fixed** in ``pssparser`` 3.0.3:
-    the linker now copies the doc comment onto the symbol scope, so a package
-    and an enum answer ``getDocstring()`` directly. This no longer asserts the
-    gap — asserting a bug's continued existence turns an upstream fix into a
-    red build — but the index is still exercised, because it must keep working
-    against a ``pssparser`` that predates the fix.
-
-    The workaround itself is removed once the minimum ``pssparser`` is one
-    that carries the fix; see ``design/pssparser-fixes-plan.md`` (V5).
-    """
-    from pssparser.utils import SymbolScopeUtil
-
-    util = SymbolScopeUtil(sample_model.root)
-
-    package = util.getQname("dma_pkg")
-    declaration = sample_model.declaration_at(package.getLocation())
-    assert "A small DMA subsystem" in declaration.getDocstring()
-
-    enum = util.getQname("dma_pkg::AddrMode")
-    declaration = sample_model.declaration_at(enum.getLocation())
-    assert "How a transfer addresses its endpoints." in declaration.getDocstring()
-
-
-def test_the_declaration_index_excludes_the_standard_library(sample_model) -> None:
-    for fileid, _ in sample_model._declarations:
-        assert fileid != 0
-
-
 # --- error handling ---------------------------------------------------------
 
 BROKEN = "component C { NoSuchType f; }"
@@ -162,6 +130,18 @@ def test_a_link_error_is_tolerated_when_asked(tmp_path: pathlib.Path) -> None:
     model = parse_model([str(source)], tolerate_link_errors=True)
 
     assert model.errors, "a tolerated failure must still be reported"
+    assert not model.linked
+    assert model.root is None, "a failed link's root is not a documentation view"
+
+
+def test_a_degraded_model_is_walkable_per_file(tmp_path: pathlib.Path) -> None:
+    source = tmp_path / "broken.pss"
+    source.write_text(BROKEN)
+
+    model = parse_model([str(source)], tolerate_link_errors=True)
+
+    assert len(model.user_units()) == 1
+    assert list(model.file_map.values()) == [str(source)]
 
 
 def test_a_syntax_error_is_reported_with_its_location(tmp_path: pathlib.Path) -> None:

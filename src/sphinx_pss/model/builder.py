@@ -22,13 +22,13 @@ This is the only module that knows ``pssparser``'s node shapes. It walks the
 merging, inheritance and type resolution have happened — the linked tree is the
 documentation view (design section 4.1).
 
-Three parser behaviors drive the shape of the code here, all recorded in the
+Two parser behaviors drive the shape of the code here, both recorded in the
 implementation plan:
 
-* a linked type wrapper hides its declaration's docstring, so nodes are
-  unwrapped before being read (``SymbolTypeScope.getTarget()``);
-* packages and enums expose no declaration at all, so their doc comment is
-  recovered through `ParsedModel.declaration_at` (finding ``U-1``);
+* a linked symbol carries its declaration's doc comment (the linker copies it
+  across), but the kind-specific shape — struct kind, super type, template
+  parameters, a function's prototype — lives on the declaration, so nodes are
+  unwrapped before that is read (``SymbolTypeScope.getTarget()``);
 * a merged ``extend`` member keeps its own extend-site location, which is
   exactly what makes provenance derivable without any parser change.
 """
@@ -39,7 +39,9 @@ from typing import Any, Iterable
 
 from .locations import (
     STDLIB_FILEID,
+    fill_line_map,
     is_synthesized,
+    match_lines,
     node_source_ref,
     node_type_name,
 )
@@ -47,6 +49,7 @@ from .objects import (
     PROVENANCE_DECLARATION,
     PROVENANCE_EXTENSION,
     Annotation,
+    DocSource,
     FlowRef,
     FlowSpec,
     Provenance,
@@ -104,8 +107,10 @@ QUALIFIER_ORDER = (
 def _name_of(node: Any) -> str | None:
     """The declared name of ``node``, whatever shape the accessor returns.
 
-    Some nodes return a plain string, others an ``ExprId``. Normalizing here
-    keeps every caller from having to know which is which.
+    Some nodes return a plain string, others an ``ExprId``, and a resolved
+    reference (an annotation parameter's ``ExprRefName``) wraps the ``ExprId``
+    once more. Normalizing here keeps every caller from having to know which is
+    which.
     """
     getter = getattr(node, "getName", None)
     if getter is None:
@@ -114,14 +119,12 @@ def _name_of(node: Any) -> str | None:
         name = getter()
     except TypeError:  # pragma: no cover - indexed getName overloads
         return None
-    if name is None:
-        return None
-    if hasattr(name, "getId"):
+    while name is not None and hasattr(name, "getId"):
         try:
-            return str(name.getId())
+            name = name.getId()
         except TypeError:  # pragma: no cover
             return None
-    return str(name)
+    return None if name is None else str(name)
 
 
 def _docstring_of(node: Any) -> str | None:
@@ -192,10 +195,8 @@ def _expr_text(expr: Any) -> str:
 def _type_identifier_name(type_id: Any) -> str | None:
     """Render a ``TypeIdentifier`` as its written ``a::b::c`` name.
 
-    The resolved target is unreachable from Python — ``getTarget()`` returns a
-    ``SymbolRefPath`` that exposes only an index (finding ``U-3``) — so the
-    written name is what we have. `sphinx_pss.model.index` resolves it to a
-    qualified name against the index, which is the design's model anyway.
+    The written form is what a signature shows. The linker's resolution of the
+    same reference is read separately, by `ModelBuilder._target_of`.
     """
     if type_id is None:
         return None
@@ -336,7 +337,7 @@ class ModelBuilder:
             for child in iter_children(root):
                 obj = self._build_node(child, parent_qualname="")
                 if obj is not None:
-                    objects.append(obj)
+                    _add_member(objects, obj)
         return objects
 
     # --- helpers -----------------------------------------------------------
@@ -344,27 +345,33 @@ class ModelBuilder:
     def _source_ref(self, node: Any) -> SourceRef | None:
         return node_source_ref(node, self._model.file_map)
 
+    def _doc_source(self, node: Any, raw_doc: str | None) -> DocSource | None:
+        """Map each line of ``raw_doc`` back to the comment it came from.
+
+        The parser reports where the comment starts (``getDocLocation``) and
+        its verbatim text (``getDocRaw``); matching the normalized lines
+        against the verbatim ones recovers each line's position.
+        """
+        if not raw_doc:
+            return None
+        get_location = getattr(node, "getDocLocation", None)
+        loc = get_location() if get_location is not None else None
+        if loc is None or loc.lineno < 0:
+            return None
+        get_raw = getattr(node, "getDocRaw", None)
+        verbatim = (get_raw() if get_raw is not None else "") or ""
+        indices = match_lines(raw_doc.split("\n"), verbatim.split("\n"))
+        return DocSource(
+            path=self._model.file_map.get(loc.fileid, f"<file {loc.fileid}>"),
+            lines=fill_line_map(indices, loc.lineno),
+        )
+
     def _fileid_of(self, node: Any) -> int:
         getter = getattr(node, "getLocation", None)
         if getter is None:
             return -1
         loc = getter()
         return loc.fileid if loc is not None else -1
-
-    def _doc_for(self, node: Any, declaration: Any) -> str | None:
-        """The element's doc comment, from wherever the parser exposes it."""
-        doc = _docstring_of(declaration)
-        if doc is None and declaration is not node:
-            doc = _docstring_of(node)
-        if doc is None:
-            # Packages and enums: unreachable from the linked tree, recovered
-            # from the pre-link declaration by location (finding U-1).
-            getter = getattr(node, "getLocation", None)
-            if getter is not None:
-                recovered = self._model.declaration_at(getter())
-                if recovered is not None:
-                    doc = _docstring_of(recovered)
-        return doc
 
     def _provenance(self, node: Any, owner_fileid: int) -> Provenance:
         """Where a member was written, relative to its owning type.
@@ -393,6 +400,44 @@ class ModelBuilder:
     def _qualname(self, parent: str, name: str) -> str:
         return f"{parent}::{name}" if parent else name
 
+    def _target_of(self, type_id: Any) -> str | None:
+        """The qualified name a ``TypeIdentifier`` resolved to, if exact.
+
+        The linker records a resolved reference as a ``SymbolRefPath``: steps
+        down the linked symbol tree from the root. When every step is a plain
+        child index, the names along the way are exactly the qualified name
+        this builder gives the target, because qualified names are built by
+        the same walk. Any other step (a template specialization, a parameter,
+        ``this``) returns None and the index resolves the written name instead.
+        """
+        if not self._model.linked or self._model.root is None or type_id is None:
+            return None
+        get_target = getattr(type_id, "getTarget", None)
+        ref = get_target() if get_target is not None else None
+        if ref is None or not hasattr(ref, "numPath"):
+            return None
+
+        from pssparser.ast import SymbolRefPathElemKind
+
+        node = self._model.root
+        names: list[str] = []
+        for i in range(ref.numPath()):
+            elem = ref.getPath(i)
+            if elem.kind != SymbolRefPathElemKind.ElemKind_ChildIdx:
+                return None
+            node = node.getChild(elem.idx)
+            if node is None:
+                return None
+            name = _name_of(node)
+            if name:
+                names.append(name)
+        return "::".join(names) or None
+
+    def _data_type_target(self, data_type: Any) -> str | None:
+        """`_target_of` for a data type, when it names a user-defined type."""
+        get_type_id = getattr(data_type, "getType_id", None)
+        return self._target_of(get_type_id()) if get_type_id is not None else None
+
     # --- dispatch ----------------------------------------------------------
 
     def _build_node(self, node: Any, parent_qualname: str) -> PssObject | None:
@@ -402,7 +447,10 @@ class ModelBuilder:
             return None
         if self._skip(node):
             return None
-        return handler(self, node, parent_qualname)
+        obj = handler(self, node, parent_qualname)
+        if obj is not None and obj.doc_source is None:
+            obj.doc_source = self._doc_source(node, obj.raw_doc)
+        return obj
 
     def _build_children(
         self, node: Any, qualname: str, owner_fileid: int
@@ -413,15 +461,20 @@ class ModelBuilder:
             if obj is None:
                 continue
             obj.defined_in = self._provenance(child, owner_fileid)
-            children.append(obj)
+            _add_member(children, obj)
         return children
 
     # --- per-kind builders -------------------------------------------------
 
     def _build_scope(self, node: Any, parent_qualname: str) -> PssObject | None:
-        """A ``SymbolScope`` — a package in the linked tree."""
+        """A ``SymbolScope`` — a package in the linked tree.
+
+        The linker also makes a ``SymbolScope`` for an anonymous scope such as
+        an in-line ``covergroup``, named ``<covergroup>``. That is not a
+        package, and covergroups are not documented, so it is skipped.
+        """
         name = _name_of(node)
-        if not name:
+        if not name or name.startswith("<"):
             return None
         qualname = self._qualname(parent_qualname, name)
         declaration = unwrap(node)
@@ -431,7 +484,7 @@ class ModelBuilder:
             name=name,
             qualname=qualname,
             signature=f"package {name}",
-            raw_doc=self._doc_for(node, declaration),
+            raw_doc=_docstring_of(node),
             annotations=_annotations_of(declaration),
             location=self._source_ref(node),
         )
@@ -492,9 +545,8 @@ class ModelBuilder:
         if getattr(declaration, "getIs_abstract", lambda: False)():
             qualifiers.append("abstract")
 
-        extends = _type_identifier_name(
-            getattr(declaration, "getSuper_t", lambda: None)()
-        )
+        super_t = getattr(declaration, "getSuper_t", lambda: None)()
+        extends = _type_identifier_name(super_t)
         template_params = _template_params_of(declaration)
 
         obj = PssObject(
@@ -506,8 +558,9 @@ class ModelBuilder:
                 kind, name, qualifiers, template_params, extends
             ),
             extends=extends,
+            extends_target=self._target_of(super_t),
             template_params=template_params,
-            raw_doc=self._doc_for(node, declaration),
+            raw_doc=_docstring_of(node),
             annotations=_annotations_of(declaration),
             location=self._source_ref(node),
         )
@@ -527,7 +580,7 @@ class ModelBuilder:
             name=name,
             qualname=qualname,
             signature=f"enum {name}",
-            raw_doc=self._doc_for(node, unwrap(node)),
+            raw_doc=_docstring_of(node),
             annotations=_annotations_of(node),
             location=self._source_ref(node),
         )
@@ -539,6 +592,7 @@ class ModelBuilder:
             for item in _enum_items(node):
                 built = self._build_enum_item(item, qualname)
                 if built is not None:
+                    built.doc_source = self._doc_source(item, built.raw_doc)
                     built.defined_in = self._provenance(item, owner_fileid)
                     obj.children.append(built)
         return obj
@@ -558,25 +612,23 @@ class ModelBuilder:
         )
 
     def _build_function_scope(self, node: Any, parent_qualname: str) -> PssObject | None:
-        """A ``SymbolFunctionScope``.
+        """A function: a linked ``SymbolFunctionScope``, or in degraded mode the
+        ``FunctionDefinition`` or prototype it was built from.
 
-        The prototype carries neither a location nor a docstring (finding
-        ``U-4``), so the definition supplies both and the prototype supplies
-        only the signature.
+        The prototype supplies the signature; the node itself supplies the doc
+        comment and location, which the linker gives every function symbol --
+        including one that is only a prototype, such as an ``import`` function.
         """
-        definition = unwrap(node)
-        proto = getattr(definition, "getProto", lambda: None)()
-        if proto is None and node_type_name(definition) == "FunctionPrototype":
-            proto = definition
-
-        # In degraded mode the node *is* the ``FunctionDefinition``, which
+        proto = _function_proto(node)
+        # In degraded mode the node may be a ``FunctionDefinition``, which
         # carries no name of its own -- the prototype holds it.
         name = _name_of(node) or _name_of(proto)
         if not name:
             return None
         qualname = self._qualname(parent_qualname, name)
+        rtype = getattr(proto, "getRtype", lambda: None)() if proto is not None else None
 
-        qualifiers: list[str] = []
+        qualifiers: list[str] = ["import"] if _is_import(node) else []
         if proto is not None:
             for accessor, keyword in (
                 ("getIs_pure", "pure"),
@@ -592,14 +644,47 @@ class ModelBuilder:
             qualname=qualname,
             qualifiers=qualifiers,
             signature=render_function_signature(name, qualifiers, proto),
-            type_ref=_type_name(getattr(proto, "getRtype", lambda: None)())
-            if proto is not None
-            else None,
-            raw_doc=_docstring_of(definition) or self._doc_for(node, definition),
-            annotations=_annotations_of(definition),
+            type_ref=_type_name(rtype),
+            type_target=self._data_type_target(rtype),
+            raw_doc=_docstring_of(node),
+            annotations=_annotations_of(unwrap(node)),
             location=self._source_ref(node),
-            children=_function_params(proto),
+            children=self._function_params(proto, qualname),
         )
+
+    def _function_params(self, proto: Any, function_qualname: str) -> list[PssObject]:
+        """Parameters of a function prototype, as ``field``-kind children.
+
+        Qualified under the function: parameter names are only unique per
+        function, and a bare name collides across every function that shares
+        one.
+        """
+        if proto is None:
+            return []
+        get_params = getattr(proto, "getParameters", None)
+        if get_params is None:
+            return []
+        params = get_params()
+        result: list[PssObject] = []
+        for i in range(len(params)):
+            param = proto.getParameter(i)
+            name = _name_of(param)
+            if not name:
+                continue
+            data_type = getattr(param, "getType", lambda: None)()
+            type_name = _type_name(data_type)
+            result.append(
+                PssObject(
+                    kind="field",
+                    name=name,
+                    qualname=f"{function_qualname}::{name}",
+                    signature=f"{type_name} {name}" if type_name else name,
+                    type_ref=type_name,
+                    type_target=self._data_type_target(data_type),
+                    raw_doc=_docstring_of(param),
+                )
+            )
+        return result
 
     def _build_field(self, node: Any, parent_qualname: str) -> PssObject | None:
         if _is_builtin_field(node):
@@ -608,7 +693,8 @@ class ModelBuilder:
         if not name:
             return None
         qualifiers = _qualifiers_of_field(node)
-        type_name = _type_name(getattr(node, "getType", lambda: None)())
+        data_type = getattr(node, "getType", lambda: None)()
+        type_name = _type_name(data_type)
 
         return PssObject(
             kind="field",
@@ -617,6 +703,7 @@ class ModelBuilder:
             qualifiers=qualifiers,
             signature=render_field_signature(name, qualifiers, type_name),
             type_ref=type_name,
+            type_target=self._data_type_target(data_type),
             raw_doc=_docstring_of(node),
             annotations=_annotations_of(node),
             location=self._source_ref(node),
@@ -628,7 +715,8 @@ class ModelBuilder:
         if not name:
             return None
         direction = "input" if getattr(node, "getIs_input", lambda: True)() else "output"
-        type_name = _type_name(getattr(node, "getType", lambda: None)())
+        data_type = getattr(node, "getType", lambda: None)()
+        type_name = _type_name(data_type)
 
         return PssObject(
             kind="flow_ref",
@@ -637,6 +725,7 @@ class ModelBuilder:
             qualifiers=[direction],
             signature=f"{direction} {type_name or '?'} {name}",
             type_ref=type_name,
+            type_target=self._data_type_target(data_type),
             raw_doc=_docstring_of(node),
             annotations=_annotations_of(node),
             location=self._source_ref(node),
@@ -648,7 +737,8 @@ class ModelBuilder:
         if not name:
             return None
         mode = "lock" if getattr(node, "getIs_lock", lambda: True)() else "share"
-        type_name = _type_name(getattr(node, "getType", lambda: None)())
+        data_type = getattr(node, "getType", lambda: None)()
+        type_name = _type_name(data_type)
 
         return PssObject(
             kind="resource_claim",
@@ -657,6 +747,7 @@ class ModelBuilder:
             qualifiers=[mode],
             signature=f"{mode} {type_name or '?'} {name}",
             type_ref=type_name,
+            type_target=self._data_type_target(data_type),
             raw_doc=_docstring_of(node),
             annotations=_annotations_of(node),
             location=self._source_ref(node),
@@ -666,13 +757,15 @@ class ModelBuilder:
         name = _name_of(node)
         if not name:
             return None
-        type_name = _type_name(getattr(node, "getType", lambda: None)())
+        data_type = getattr(node, "getType", lambda: None)()
+        type_name = _type_name(data_type)
         return PssObject(
             kind="pool",
             name=name,
             qualname=self._qualname(parent_qualname, name),
             signature=f"pool {type_name or '?'} {name}",
             type_ref=type_name,
+            type_target=self._data_type_target(data_type),
             raw_doc=_docstring_of(node),
             location=self._source_ref(node),
         )
@@ -707,32 +800,49 @@ def _enum_items(node: Any) -> list[Any]:
     return [node.getItem(i) for i in range(len(items))]
 
 
-def _function_params(proto: Any) -> list[PssObject]:
-    """Parameters of a function prototype, as ``field``-kind children."""
-    if proto is None:
-        return []
-    get_params = getattr(proto, "getParameters", None)
-    if get_params is None:
-        return []
-    params = get_params()
-    result: list[PssObject] = []
-    for i in range(len(params)):
-        param = proto.getParameter(i)
-        name = _name_of(param)
-        if not name:
-            continue
-        type_name = _type_name(getattr(param, "getType", lambda: None)())
-        result.append(
-            PssObject(
-                kind="field",
-                name=name,
-                qualname=name,
-                signature=f"{type_name} {name}" if type_name else name,
-                type_ref=type_name,
-                raw_doc=_docstring_of(param),
-            )
-        )
-    return result
+def _add_member(members: list[PssObject], obj: PssObject) -> None:
+    """Append ``obj``, folding a repeated function into the first.
+
+    Only the degraded path produces a repeat: before linking, a prototype and
+    its later definition are separate declarations. The first keeps its place
+    and location; a doc comment is taken from the first that has one, which is
+    the rule the linker applies to the merged symbol.
+    """
+    if obj.kind == "function":
+        for existing in members:
+            if existing.kind == "function" and existing.qualname == obj.qualname:
+                if not existing.raw_doc:
+                    existing.raw_doc = obj.raw_doc
+                    existing.doc_source = obj.doc_source
+                return
+    members.append(obj)
+
+
+def _function_proto(node: Any) -> Any | None:
+    """The prototype that gives a function its signature.
+
+    A linked function with a body is reached through its definition; one
+    without (``import`` functions, a declaration before its definition) has
+    only its prototypes. In degraded mode ``node`` is the pre-link
+    declaration itself.
+    """
+    if node_type_name(node) in _PROTOTYPE_NODE_TYPES:
+        return node
+    proto = getattr(unwrap(node), "getProto", lambda: None)()
+    if proto is not None:
+        return proto
+    num_prototypes = getattr(node, "numPrototypes", None)
+    if num_prototypes is not None and num_prototypes():
+        return node.getPrototype(0)
+    return None
+
+
+def _is_import(node: Any) -> bool:
+    """True for an ``import`` function, linked or pre-link."""
+    if node_type_name(node) == "FunctionImportProto":
+        return True
+    num_import_specs = getattr(node, "numImport_specs", None)
+    return bool(num_import_specs is not None and num_import_specs())
 
 
 def _flow_spec_from_children(action: PssObject) -> FlowSpec:
@@ -815,6 +925,12 @@ def render_function_signature(
     return f"{prefix} {name}({', '.join(params)})"
 
 
+#: Pre-link node types that are a function prototype, and so their own
+#: signature source. (``FunctionImportProto`` is not one: like a definition, it
+#: holds its prototype through ``getProto()``.)
+_PROTOTYPE_NODE_TYPES = frozenset({"FunctionPrototype"})
+
+
 #: Parser node type -> builder method. A node type absent from this table is
 #: not documented, which is how Phase-2/3 kinds (activities, covergroups, exec
 #: blocks) stay out of the Phase-1 output without a special case.
@@ -833,6 +949,8 @@ _DISPATCH = {
     "Struct": ModelBuilder._build_type_scope,
     "EnumDecl": ModelBuilder._build_enum_scope,
     "FunctionDefinition": ModelBuilder._build_function_scope,
+    "FunctionPrototype": ModelBuilder._build_function_scope,
+    "FunctionImportProto": ModelBuilder._build_function_scope,
     # Members.
     "EnumItem": ModelBuilder._build_enum_item,
     "Field": ModelBuilder._build_field,

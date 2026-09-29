@@ -51,6 +51,7 @@ ERROR: sphinx-pss: no PSS object named 'dma_pkg::Dma::Xfr' of kind action;
 | `:show-extensions:` | Label members contributed by an `extend` |
 | `:no-index:` | Do not add an index entry or a cross-reference target |
 | `:doc-style:` | Override `pss_doc_style` for this directive |
+| `:steps:` | `autopssfunction`, `autopssaction` and `autopsscomponent` only: add the {ref}`step table <showing-steps>` to the entry. Takes `:exec:`, `:numbering:`, `:expand-calls:` and `:depth:` |
 
 `:member-order: source` is the default because for PSS the declaration order
 carries meaning — an action's flow signature reads in the order it was written.
@@ -101,6 +102,20 @@ Options: `:no-index-entry:`, `:module:` (the enclosing scope), `:qualname:` (the
 target name, when it differs from what the signature shows), `:type:`,
 `:qualifiers:`, `:extends:`.
 
+### Step tables
+
+`pss:steps` renders the programming steps of a function, or of a type's `exec`
+blocks, as a table. It documents no object, so it adds no index entry.
+
+```rst
+.. pss:steps:: mac_pkg::mac_c
+   :exec: init_down
+   :numbering: outline
+```
+
+Its options are listed with the table, on the
+{ref}`programming steps <showing-steps>` page.
+
 ## Roles
 
 | Role | Resolves to |
@@ -135,9 +150,9 @@ which one was meant.
 | `pss_doc_style` | `"native"` | Doc-comment dialect: `native`, `doxygen` *(Phase 4)*, or `auto` |
 | `pss_document_stdlib` | `False` | Publish the PSS standard library as well. It is always parsed and indexed so references into it resolve; this decides whether it is *documented* |
 | `pss_tolerate_link_errors` | `False` | Continue after a link failure with declarations and doc comments only |
-| `pss_diagrams` | `"graphviz"` | Diagram backend *(Phase 2)*: `graphviz`, `mermaid`, or `off` |
+| `pss_diagrams` | `"graphviz"` | What draws diagrams: `graphviz`, `mermaid`, or `off`. See [Diagrams](diagrams.md) |
 | `pss_viewcode` | `True` | Generate `[source]` links *(Phase 3)* |
-| `pss_default_options` | `{}` | Options applied to every `autopss*` directive |
+| `pss_default_options` | `{}` | Options applied to every `autopss*` directive. `steps` isn't allowed: a step table is only shown where a page asks for one |
 
 ```python
 pss_default_options = {"members": True, "member-order": "source"}

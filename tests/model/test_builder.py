@@ -172,6 +172,28 @@ def test_function_parameters_become_children(by_qualname) -> None:
     assert align_up.type_ref == "int"
 
 
+def test_function_parameters_are_qualified_by_their_function(by_qualname) -> None:
+    [param] = by_qualname["dma_pkg::Dma::align_up"].children
+    assert param.qualname == "dma_pkg::Dma::align_up::n"
+
+
+def test_parameters_shared_across_functions_do_not_collide(tmp_path) -> None:
+    from sphinx_pss.model.index import PssIndex
+
+    source = tmp_path / "params.pss"
+    source.write_text(
+        "package p {\n"
+        "    function int f(int i0, int i1) { return i0 + i1; }\n"
+        "    function int g(int i0) { return i0; }\n"
+        "}\n"
+    )
+    index = PssIndex(parse_model([str(source)]))
+
+    assert "p::f::i0" in index
+    assert "p::g::i0" in index
+    assert "i0" not in index, "a parameter must not be indexed at top level"
+
+
 # --- flow spec --------------------------------------------------------------
 
 
@@ -192,3 +214,90 @@ def test_an_action_with_no_flow_has_a_falsey_spec(by_qualname) -> None:
     configure = by_qualname["dma_pkg::Dma::Configure"]
     assert configure.flow.outputs  # it does produce a state
     assert not configure.flow.inputs
+
+
+# --- anonymous scopes -------------------------------------------------------
+
+
+def test_an_inline_covergroup_is_not_documented_as_a_package(tmp_path) -> None:
+    source = tmp_path / "cg.pss"
+    source.write_text(
+        "component C {\n"
+        "    action A {\n"
+        "        rand bit[4] v;\n"
+        "        // An in-line covergroup.\n"
+        "        covergroup { cp : coverpoint v; } cg_i;\n"
+        "    }\n"
+        "}\n"
+    )
+    objects = build_objects(parse_model([str(source)]))
+
+    names = [obj.qualname for root in objects for obj in root.walk()]
+    assert not [n for n in names if "<" in n], names
+
+
+# --- annotations ------------------------------------------------------------
+
+
+def test_annotation_parameters_are_keyed_by_name(tmp_path) -> None:
+    source = tmp_path / "ann.pss"
+    source.write_text(
+        "package p {\n"
+        "    annotation desc_c { string text; int level; }\n"
+        '    @desc_c {.text = "hello", .level = 3}\n'
+        "    struct S { }\n"
+        "}\n"
+    )
+    [package] = build_objects(parse_model([str(source)]))
+    [struct] = [c for c in package.children if c.name == "S"]
+
+    [annotation] = struct.annotations
+    assert annotation.name == "desc_c"
+    assert set(annotation.params) == {"text", "level"}
+
+
+# --- prototype-only functions -----------------------------------------------
+
+FUNCTIONS = """\
+package p {
+    /** Imported. */
+    import target function void poke(bit[32] addr, int data);
+    function int h(int z);
+    /** Defined later. */
+    function int h(int z) { return z; }
+}
+"""
+
+
+def _functions(model) -> dict[str, PssObject]:
+    [package] = [o for o in build_objects(model) if o.name == "p"]
+    return {o.name: o for o in package.children if o.kind == "function"}
+
+
+@pytest.fixture(params=["linked", "degraded"])
+def functions(request, tmp_path) -> dict[str, PssObject]:
+    source = tmp_path / "f.pss"
+    source.write_text(FUNCTIONS)
+    sources = [str(source)]
+    if request.param == "degraded":
+        broken = tmp_path / "broken.pss"
+        broken.write_text("component C { NoSuchType f; }")
+        sources.append(str(broken))
+    model = parse_model(sources, tolerate_link_errors=True)
+    assert model.linked is (request.param == "linked")
+    return _functions(model)
+
+
+def test_an_import_function_has_its_full_signature(functions) -> None:
+    poke = functions["poke"]
+    assert poke.signature == "import target void poke(bit [31:0] addr, int data)"
+    assert [c.name for c in poke.children] == ["addr", "data"]
+    assert poke.raw_doc == "Imported."
+    assert poke.location is not None
+
+
+def test_a_prototype_and_its_definition_are_one_function(functions) -> None:
+    h = functions["h"]
+    assert h.signature == "int h(int z)"
+    assert h.raw_doc == "Defined later.", "first non-empty doc comment wins"
+    assert h.location.line == 4, "located at the first declaration"

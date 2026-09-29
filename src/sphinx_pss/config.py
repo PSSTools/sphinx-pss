@@ -103,6 +103,13 @@ def validate_config(app: Sphinx | None, config: Config) -> None:
                 f"{key}: expected a list of path strings, got {value!r}"
             )
 
+    if "steps" in config.pss_default_options:
+        raise PssConfigError(
+            "pss_default_options: 'steps' can't be a default. Step tables appear "
+            "only where a page asks for one, with ':steps:' on an autopss "
+            "directive or with 'pss:steps'"
+        )
+
     order = config.pss_default_options.get("member-order")
     if order is not None:
         _check_choice("pss_default_options['member-order']", order, MEMBER_ORDERS)

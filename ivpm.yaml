@@ -23,6 +23,9 @@ package:
       src: pypi
     - name: beautifulsoup4
       src: pypi
+    # The mermaid diagram back-end's tests (tests/autodoc/test_diagrams.py).
+    - name: sphinxcontrib-mermaid
+      src: pypi
 
   - name: default-dev
     deps:
@@ -43,3 +46,15 @@ package:
       src: pypi
     - name: beautifulsoup4
       src: pypi
+    # The mermaid diagram back-end's tests (tests/autodoc/test_diagrams.py).
+    - name: sphinxcontrib-mermaid
+      src: pypi
+
+    # The shared .pss corpus (pss-corpus/README.md), read by the opt-in
+    # `corpus` tests. Test data: `type: raw` because there is nothing to build
+    # or install. `default-dev` only: nothing under src/ reads it, and a
+    # released wheel has no business depending on test data. The URL names
+    # the upstream, like this file's other entries (pss-corpus PLAN.md C-2).
+    - name: pss-corpus
+      url: https://git.dvkit.org/psstools/pss-corpus.git
+      type: raw

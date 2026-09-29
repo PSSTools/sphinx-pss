@@ -75,17 +75,28 @@ jobs:
         ${IVPM_PYTHON} -m ivpm update -j 1 -a
 
     - name: Install sphinx-pss
+      # --no-deps is load-bearing: ivpm has already installed every dependency,
+      # and the pssparser it built from source reports version 0.0.0 (only a
+      # release tag carries a real number). Letting pip resolve would see the
+      # pyproject floor unmet and replace the built parser with a PyPI release,
+      # so the suite would silently test against the wrong parser.
       run: |
         . packages/python/bin/activate
-        pip install -e .[test,docs] --no-build-isolation
+        pip install --no-deps --no-build-isolation -e .
 
-    - name: Verify the pssparser floor is met
-      # sphinx-pss asserts a pssparser floor at import. Checking it as its own
-      # step means a floor violation reports as itself rather than as a wall of
-      # collection errors.
+    - name: Verify pssparser can extract doc comments
+      # sphinx-pss probes pssparser's doc-comment support at first parse.
+      # Checking it as its own step means an incapable parser reports as
+      # itself rather than as a wall of test failures.
       run: |
         . packages/python/bin/activate
-        python -c "from sphinx_pss._version_floor import check_pssparser_version as c; print('pssparser', c())"
+        python -c "from sphinx_pss._capability import check_pssparser as c; print('pssparser', c())"
+
+    - name: Install Graphviz
+      # Flowcharts are drawn with dot. Without it, the Graphviz tests skip and
+      # the -W docs build below fails on the one missing-dot warning, which
+      # is the point: the published docs must have their diagrams.
+      run: dnf install -y graphviz
 
     - name: Run the test suite
       run: |

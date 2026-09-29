@@ -1,0 +1,12 @@
+// Programming-step fixture: the second of two extensions to eth_c::send_a.
+
+package eth_ext_b {
+    import eth_pkg::*;
+
+    extend action eth_c::send_a {
+        exec body {
+            /// Step: Wait for the frame to go out
+            while ((read_reg(0x000) & 0x0200) != 0) { }
+        }
+    }
+}

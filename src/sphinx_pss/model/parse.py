@@ -26,12 +26,9 @@ Holding Python wrappers obtained before that point is a double-ownership fault.
 So `ParsedModel` keeps the ``Parser`` alive for as long as anything reads the
 tree, and every traversal goes through the linked root or ``user_units()``.
 
-**Reachability.** A package's and an enum's doc comment are collected by the
-parser but are not reachable from the linked tree — ``SymbolScope`` and
-``SymbolEnumScope`` expose no declaration (finding ``U-1`` in the
-implementation plan). `ParsedModel.declaration_at` closes that by indexing the
-declaration nodes from ``user_units()`` on ``(fileid, lineno)``, which the
-linked node's own location joins to exactly.
+**Failure.** ``link()`` records the root, ``file_map`` and ``user_units()``
+before it raises, so a model that parses but does not link is still walkable
+per file. That is what the degraded mode reads.
 """
 
 from __future__ import annotations
@@ -39,11 +36,11 @@ from __future__ import annotations
 import dataclasses
 import os
 import pathlib
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 from sphinx.errors import SphinxError
 
-from .locations import STDLIB_FILEID, node_type_name
+from .locations import node_type_name
 
 #: Extension of a PSS source file.
 PSS_SUFFIX = ".pss"
@@ -181,67 +178,24 @@ class ParsedModel:
     sources: list[str]
     diagnostics: list[Diagnostic] = dataclasses.field(default_factory=list)
     linked: bool = True
-
-    #: ``(fileid, lineno)`` -> declaration node from ``user_units()``. See the
-    #: module docstring and finding ``U-1``.
-    _declarations: dict[tuple[int, int], Any] = dataclasses.field(
-        default_factory=dict, repr=False
-    )
-
-    #: Per-file scopes used when ``linked`` is False. Empty otherwise — a
-    #: linked model is always read through `root`.
-    degraded_units: list[Any] = dataclasses.field(default_factory=list, repr=False)
+    #: Things derived from the model on first use and kept for the build:
+    #: the call index and the token cache of programming steps. Keyed by the
+    #: module that owns each entry; see `cached`.
+    derived: dict[str, Any] = dataclasses.field(default_factory=dict, repr=False, compare=False)
 
     @property
     def errors(self) -> list[Diagnostic]:
         return [d for d in self.diagnostics if d.is_error]
 
-    def declaration_at(self, loc: Any) -> Any | None:
-        """The pre-link declaration node written at ``loc``, if there is one.
-
-        Used only to recover what the linked tree does not expose — currently a
-        package's and an enum's doc comment. The linked tree stays the
-        documentation view for everything else.
-        """
-        if loc is None or loc.lineno < 0:
-            return None
-        return self._declarations.get((loc.fileid, loc.lineno))
-
     def user_units(self) -> list[Any]:
         """Per-file ``GlobalScope``\\ s, excluding the standard library."""
-        if not self.linked:
-            return list(self.degraded_units)
         return list(self.parser.user_units())
 
-
-def _index_declarations(parser: Any) -> dict[tuple[int, int], Any]:
-    """Index every declaration node in the user's files by ``(fileid, line)``.
-
-    A location is unique per declaration in practice — two declarations cannot
-    begin on the same line of the same file in PSS — so no collision policy is
-    needed beyond first-wins, which keeps the outermost declaration when a
-    grammar wrapper shares a start position.
-    """
-    index: dict[tuple[int, int], Any] = {}
-
-    def visit(node: Any) -> None:
-        get_location = getattr(node, "getLocation", None)
-        if get_location is not None:
-            loc = get_location()
-            if loc is not None and loc.lineno >= 0 and loc.fileid != STDLIB_FILEID:
-                index.setdefault((loc.fileid, loc.lineno), node)
-
-        get_children = getattr(node, "getChildren", None)
-        if get_children is None:
-            return
-        children = get_children()
-        for i in range(len(children)):
-            visit(node.getChild(i))
-
-    for unit in parser.user_units():
-        visit(unit)
-
-    return index
+    def cached(self, key: str, factory: Callable[[], Any]) -> Any:
+        """``derived[key]``, computed by ``factory`` the first time it's asked for."""
+        if key not in self.derived:
+            self.derived[key] = factory()
+        return self.derived[key]
 
 
 def parse_model(
@@ -260,6 +214,15 @@ def parse_model(
     """
     from pssparser import ParseException, Parser
 
+    from .._capability import PssParserCapabilityError, check_pssparser
+
+    try:
+        check_pssparser()
+    except PssParserCapabilityError as e:
+        # Re-raised as a SphinxError so the message survives EventManager's
+        # re-wrapping; see PssParseError.
+        raise PssParseError(str(e)) from e
+
     sources = [str(s) for s in sources]
     missing = [s for s in sources if not os.path.isfile(s)]
     if missing:
@@ -267,7 +230,14 @@ def parse_model(
             "PSS source file(s) not found: " + ", ".join(sorted(missing))
         )
 
-    parser = Parser(collect_docstrings=True)
+    # ``collect_comments`` attaches ordinary comments, including those on
+    # procedural statements, which is where programming-step markers live
+    # (programming-steps design, section 5). It is always on rather than only
+    # when a page asks for steps: the model is built once, at builder-inited,
+    # before any directive is read. It changes nothing the docstring API
+    # returns, and it is cheap -- today it is faster, because it makes the
+    # parser lex each file up front (section 5.1).
+    parser = Parser(collect_docstrings=True, collect_comments=True)
     try:
         parser.parse(sources)
     except ParseException as e:
@@ -310,55 +280,19 @@ def parse_model(
             "diagrams will be unavailable."
         )
 
-    if not linked:
-        return _degraded_model(sources, diagnostics)
-
+    # On a failed link the per-file scopes are still reachable through
+    # ``user_units()``, and they are what a degraded build walks: declarations
+    # and doc comments survive, but ``extend`` merging, inheritance, type
+    # resolution, cross references and diagrams do not, because all of them
+    # are products of linking (design section 4.4).
     return ParsedModel(
         parser=parser,
-        root=root,
+        root=root if linked else None,
         file_map=dict(parser.file_map),
         sources=sources,
         diagnostics=diagnostics,
-        linked=True,
-        _declarations=_index_declarations(parser),
+        linked=linked,
     )
-
-
-def _degraded_model(sources: list[str], diagnostics: list[Diagnostic]) -> ParsedModel:
-    """Build a per-file model for sources that parse but do not link.
-
-    A failed ``link()`` leaves nothing walkable: it raises before snapshotting
-    ``file_map`` and before ``_root`` is set, so ``user_units()`` returns an
-    empty list and ``file_map`` is empty (finding ``U-5``). The recovery is to
-    parse again into a parser that is **never linked**, whose per-file scopes
-    are therefore still owned by it and safe to read for as long as it lives.
-
-    What survives is declarations and their doc comments. ``extend`` merging,
-    inheritance, type resolution, cross references and diagrams do not, because
-    all of them are products of linking (design section 4.4).
-    """
-    from pssparser import Parser
-
-    parser = Parser(collect_docstrings=True)
-    parser.parse(sources)
-
-    # Reading these two attributes is the compatibility shim for U-5: neither
-    # the per-file scopes nor the fileid map is reachable through the public
-    # API before link(). Safe here precisely because this parser never links,
-    # so ownership never transfers.
-    units = list(getattr(parser, "_files", ()))
-    file_map = dict(getattr(parser, "_filenames", {}))
-
-    model = ParsedModel(
-        parser=parser,
-        root=None,
-        file_map=file_map,
-        sources=sources,
-        diagnostics=diagnostics,
-        linked=False,
-    )
-    model.degraded_units = [u for u in units if u.getFileid() in file_map]
-    return model
 
 
 def iter_children(node: Any) -> Iterator[Any]:
@@ -378,12 +312,12 @@ def iter_children(node: Any) -> Iterator[Any]:
 def unwrap(node: Any) -> Any:
     """Return the declaration behind a linked symbol-scope wrapper.
 
-    Linking wraps a type declaration in a ``SymbolTypeScope`` whose own
-    ``getDocstring()`` is empty while the declaration holds the text
-    (``pssparser`` enhancement plan section 10.3). ``SymbolScope`` and
-    ``SymbolEnumScope`` have no target at all (finding ``U-1``), in which case
-    the wrapper is returned unchanged and the caller falls back to
-    `ParsedModel.declaration_at`.
+    Linking wraps a type declaration in a ``SymbolTypeScope``; the wrapped
+    declaration is what carries the kind-specific shape (``Struct.getKind()``,
+    the super type, template parameters). Doc comments do not need it: the
+    linker copies each declaration's docstring onto its symbol. A wrapper with
+    no target (``SymbolScope``, ``SymbolEnumScope``, a prototype-only
+    ``SymbolFunctionScope``) is returned unchanged.
     """
     get_target = getattr(node, "getTarget", None)
     if get_target is None:

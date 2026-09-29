@@ -37,13 +37,10 @@ from .objects import SourceRef
 STDLIB_FILEID = 0
 
 #: Node types whose location is legitimately absent, so the "synthesized"
-#: rule below must not be applied to them.
-#:
-#: ``EnumItem`` is the case that matters: enum values are built into a typed
-#: list rather than through ``addChild``, and never receive a location — see
-#: the ``U-2`` finding in the implementation plan. Applying the rule blindly
-#: would silently drop every enum value from the documentation.
-UNLOCATED_NODE_TYPES = frozenset({"EnumItem", "FunctionParamDecl", "TemplateParamDecl"})
+#: rule below must not be applied to them. A function parameter is written by
+#: the user but carries no location of its own; its function's location stands
+#: in for it.
+UNLOCATED_NODE_TYPES = frozenset({"FunctionParamDecl"})
 
 
 def node_type_name(node: Any) -> str:
@@ -100,3 +97,45 @@ def node_source_ref(node: Any, file_map: dict[int, str]) -> SourceRef | None:
     if location is None:
         return None
     return to_source_ref(location(), file_map)
+
+
+def match_lines(lines: list[str], original: list[str]) -> list[int | None]:
+    """For each of ``lines``, the index of the ``original`` line it came from.
+
+    ``lines`` is a transformed copy of ``original`` that keeps its order: a
+    comment after marker stripping and dedent, or rendered documentation after
+    a dialect has split it into summary, body and fields. Each non-blank line
+    is matched to the first remaining original line that contains it; a blank
+    line, or one no longer present verbatim, maps to ``None``. Matching is by
+    content rather than by count because a transformation may drop lines, as
+    normalization drops a comment's opening ``/**``.
+    """
+    result: list[int | None] = []
+    cursor = 0
+    for line in lines:
+        needle = line.strip()
+        found = None
+        if needle:
+            for i in range(cursor, len(original)):
+                if needle in original[i]:
+                    found = i
+                    break
+        if found is not None:
+            cursor = found + 1
+        result.append(found)
+    return result
+
+
+def fill_line_map(indices: list[int | None], base: int) -> tuple[int, ...]:
+    """Turn `match_lines` output into source lines, ``base`` being line 0.
+
+    An unmatched entry takes the line after its predecessor's, which is right
+    for the blank lines between paragraphs and a close guess otherwise.
+    """
+    lines: list[int] = []
+    previous = base - 1
+    for index in indices:
+        current = base + index if index is not None else previous + 1
+        lines.append(current)
+        previous = current
+    return tuple(lines)

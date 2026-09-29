@@ -1,0 +1,165 @@
+// Programming-step fixture: Ethernet controller bring-up (steps plan S2-TEST-1).
+//
+// A PSS rewrite of the initialization sequence in the Microchip PIC32 Family
+// Reference Manual, section 35 (Ethernet Controller), 35.4.10: initialize the
+// controller, then the MAC, then the MII management interface, with an RMII
+// conditional, a set-then-clear reset and a clock-divider write. Register
+// offsets are written as literals, with the register's name in a plain
+// comment; bit positions are the FRM's.
+//
+// Around that sequence it carries one of each thing the step tree handles:
+// polling loops, a count loop, a `foreach`, a `match`, a marker on a control
+// statement, a recursive pair, and a component whose `exec init_down` calls
+// the sequence. `eth_ext_a.pss` and `eth_ext_b.pss` each add an `exec body` to
+// `eth_c::send_a`.
+
+package eth_pkg {
+
+    /// Write a controller register.
+    function void write_reg(bit[32] offset, bit[32] value);
+
+    /// Read a controller register.
+    function bit[32] read_reg(bit[32] offset);
+
+    /// Set the bits of ``mask`` in a register (its SET alias).
+    function void set_bits(bit[32] offset, bit[32] mask);
+
+    /// Clear the bits of ``mask`` in a register (its CLR alias).
+    function void clr_bits(bit[32] offset, bit[32] mask);
+
+    /// Link speeds the MAC supports.
+    enum speed_e { SPEED_10, SPEED_100 }
+
+    /// Bring the controller to a known, idle state (FRM 35.4.10, step 1).
+    function void init_controller() {
+        /// Step: Disable the controller
+        /// Clear ON, then stop reception and transmission.
+        clr_bits(0x000, 0x8000);   // ETHCON1.ON
+        clr_bits(0x000, 0x0300);   // ETHCON1.RXEN, TXEN
+
+        /// Step: Wait for the controller to go idle
+        while ((read_reg(0x0A0) & 0x80) != 0) { }   // ETHSTAT.BUSY
+
+        /// Step: Disable and clear the Ethernet interrupts
+        write_reg(0x020, 0);       // ETHIEN
+        write_reg(0x030, 0);       // ETHIRQ
+
+        /// Step: Clear the descriptor start addresses
+        write_reg(0x040, 0);       // ETHTXST
+        write_reg(0x050, 0);       // ETHRXST
+    }
+
+    /// Reset and configure the MII management interface (FRM 35.4.10, step 2.c).
+    function void init_miim(bool rmii) {
+        /// Step: Reset the RMII module, if RMII is in use
+        /// RESETRMII is set, then cleared.
+        if (rmii) {
+            set_bits(0x260, 0x0800);   // EMAC1SUPP.RESETRMII
+            clr_bits(0x260, 0x0800);
+        }
+
+        /// Step: Reset the MII management block
+        set_bits(0x280, 0x8000);       // EMAC1MCFG.RESETMGMT
+
+        /// Step: Select the MDC clock divider
+        /// SYSCLK / 40 keeps MDC below 2.5 MHz.
+        write_reg(0x280, 0x8000 | (0x8 << 2));
+
+        /// Step: Release the MII management block
+        clr_bits(0x280, 0x8000);
+    }
+
+    /// Reset and configure the MAC (FRM 35.4.10, step 2).
+    function void init_mac(bool rmii) {
+        /// Step: Reset the MAC
+        set_bits(0x200, 0x8000);       // EMAC1CFG1.SOFTRESET
+        clr_bits(0x200, 0x8000);
+
+        /// Step: Initialize the MII management interface
+        init_miim(rmii);
+
+        /// Step: Enable the receiver
+        set_bits(0x200, 0x0001);       // EMAC1CFG1.RXENABLE
+    }
+
+    /// The whole bring-up sequence: FRM 35.4.10, in the manual's order.
+    function void init_eth(bool rmii) {
+        bit[32] revision = read_reg(0x0F0);   // a declaration: not a step
+
+        /// Step: Initialize the Ethernet controller
+        init_controller();
+
+        /// Step: Initialize the MAC
+        init_mac(rmii);
+
+        /// Step: Enable the controller
+        set_bits(0x000, 0x8000);       // ETHCON1.ON
+    }
+
+    /// Set the link speed, and wait for the PHY to follow.
+    function void set_speed(speed_e speed, int retries) {
+        /// Step: Program the speed
+        match (speed) {
+            [SPEED_10]: {
+                /// Step: Select 10 Mbps
+                clr_bits(0x210, 0x0100);   // EMAC1SUPP.SPEEDRMII
+            }
+            [SPEED_100]: {
+                /// Step: Select 100 Mbps
+                set_bits(0x210, 0x0100);
+            }
+        }
+
+        /// Step: Poll the PHY until the link is up
+        repeat {
+            /// Step: Read the PHY status
+            write_reg(0x290, 0x0001);      // EMAC1MCMD.READ
+        } while ((read_reg(0x2A0) & 0x4) == 0);
+
+        /// Step: Settle
+        repeat (i : retries) {
+            /// Step: Wait one MDC period
+            write_reg(0x2B0, i);
+        }
+    }
+
+    /// Clear every receive descriptor.
+    function void clear_rx(array<bit[32], 4> descriptors) {
+        /// Step: Release each descriptor
+        foreach (d : descriptors) {
+            /// Step: Clear its ownership bit
+            write_reg(d, 0);
+        }
+    }
+
+    /// Flush received frames, one descriptor at a time.
+    function void flush_rx(int n) {
+        /// Step: Drain one descriptor
+        drain_one(n);
+    }
+
+    /// Release one descriptor, then flush the rest.
+    function void drain_one(int n) {
+        /// Step: Release the descriptor
+        write_reg(0x060, n);
+
+        /// Step: Flush the rest
+        if (n > 0) {
+            flush_rx(n - 1);
+        }
+    }
+
+    component eth_c {
+        exec init_down {
+            /// Step: Bring up the Ethernet port
+            init_eth(true);
+        }
+
+        action send_a {
+            exec body {
+                /// Step: Queue the frame
+                write_reg(0x070, 1);
+            }
+        }
+    }
+}

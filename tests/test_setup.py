@@ -81,3 +81,10 @@ def test_source_paths_must_be_a_list_of_strings(key: str) -> None:
 @pytest.mark.unit
 def test_defaults_validate() -> None:
     validate_config(None, _config())
+
+
+@pytest.mark.unit
+def test_steps_is_not_a_default_option() -> None:
+    """Step tables appear only where a page asks (steps design 7.1, plan S3-IMPL-4)."""
+    with pytest.raises(PssConfigError, match="'steps' can't be a default"):
+        validate_config(None, _config(pss_default_options={"steps": True}))

@@ -30,12 +30,14 @@ from typing import Any
 from docutils.parsers.rst import directives
 from docutils.statemachine import StringList
 from sphinx.util import logging
-from sphinx.util.docutils import SphinxDirective
+from sphinx.util.docutils import SphinxDirective, switch_source_input
+from sphinx.util.parsing import nested_parse_to_nodes
 
 from ..docparse import ValidationIssue
 from ..model.index import PssIndex, build_index
 from ..model.objects import PssObject
 from ..model.parse import PssParseError
+from ..model.steps_lint import lint_markers
 from .documenters import DocumenterOptions, document_object
 
 logger = logging.getLogger(__name__)
@@ -143,11 +145,17 @@ class AutoPssDirective(SphinxDirective):
         if self.content:
             # Directive-body content overrides the source documentation
             # (design section 5.4), so it is appended inside the object's body
-            # after the generated prose.
-            lines.extend(f"   {line}" for line in self.content)
-            lines.append("")
+            # after the generated prose -- keeping its own .rst source lines.
+            for source, offset, line in self.content.xitems():
+                lines.append(f"   {line}", source, offset)
+            lines.append("", f"<autopss:{target}>", len(lines))
 
-        return self.parse_generated(lines, target)
+        result = self.parse_generated(lines)
+        if "steps" in self.options:
+            from .steps import attach_steps
+
+            attach_steps(self, obj.qualname, result)
+        return result
 
     # --- helpers -----------------------------------------------------------
 
@@ -172,13 +180,16 @@ class AutoPssDirective(SphinxDirective):
         """Turn cross-validation findings into Sphinx warnings.
 
         Located at the *source* of the doc comment rather than at the directive,
-        because the thing to fix is the comment in the ``.pss`` file.
+        because the thing to fix is the comment in the ``.pss`` file: a field
+        issue at the field's line, anything else at the declaration.
         """
         for obj, issue in issues:
             location = None
-            if obj.location is not None:
-                line = obj.location.line + max(issue.line - 1, 0)
-                location = f"{obj.location.path}:{line}"
+            if issue.line > 0 and obj.doc_source is not None:
+                line = obj.doc_source.line_of(issue.line - 1)
+                location = f"{obj.doc_source.path}:{line}"
+            elif obj.location is not None:
+                location = str(obj.location)
             logger.warning(
                 issue.message,
                 location=location or f"{self.env.docname}:{self.lineno}",
@@ -186,28 +197,43 @@ class AutoPssDirective(SphinxDirective):
                 subtype=issue.category,
             )
 
-    def parse_generated(self, lines: list[str], source: str) -> list[Any]:
+    def parse_generated(self, content: StringList) -> list[Any]:
         """Parse generated reStructuredText into nodes.
 
-        The generated text is attributed to a pseudo-file named for the object,
-        so a syntax error inside a doc comment reports against something the
-        author can find rather than against a line number in a temporary
-        buffer.
+        ``content`` carries a source for every line (see
+        `PssDocumenter.document`). Two things are needed for docutils to use
+        it: an offset of 0, so line numbers index ``content`` rather than the
+        host document, and `switch_source_input`, because the reporter maps
+        line numbers through the *host* document's state machine otherwise --
+        which is how a doc-comment error used to be reported as
+        ``index.rst:91`` in a six-line file.
         """
-        content = StringList(lines, source=f"<autopss:{source}>")
-        return self.parse_text_to_nodes(content, allow_section_headings=True)
+        with switch_source_input(self.state, content):
+            return nested_parse_to_nodes(
+                self.state, content, allow_section_headings=True
+            )
+
+
+#: Directives that take ``:steps:``: the kinds with a body to show steps of
+#: (programming-steps design 7.1).
+STEPS_DIRECTIVES = frozenset({"function", "action", "component"})
 
 
 def make_directive(name: str, kinds: tuple[str, ...]) -> type[AutoPssDirective]:
     label = ", ".join(kinds) if kinds else "object"
-    return type(
-        f"AutoPss{name.title()}Directive",
-        (AutoPssDirective,),
-        {
-            "kinds": kinds,
-            "__doc__": f"Documents a PSS {label} from source.",
-        },
-    )
+    attrs: dict[str, Any] = {
+        "kinds": kinds,
+        "__doc__": f"Documents a PSS {label} from source.",
+    }
+    if name in STEPS_DIRECTIVES:
+        from .steps import STEP_OPTIONS
+
+        attrs["option_spec"] = {
+            **AutoPssDirective.option_spec,
+            "steps": directives.flag,
+            **STEP_OPTIONS,
+        }
+    return type(f"AutoPss{name.title()}Directive", (AutoPssDirective,), attrs)
 
 
 def build_shared_index(app) -> None:
@@ -217,6 +243,9 @@ def build_shared_index(app) -> None:
     error here — a project may legitimately use the domain directives by hand
     — but a directive that then needs the index says so specifically.
     """
+    from .steps import start_build
+
+    start_build(app)
     if not app.config.pss_source_dirs and not app.config.pss_source_files:
         _INDEXES[str(app.srcdir)] = None
         return
@@ -239,6 +268,17 @@ def build_shared_index(app) -> None:
             location=diagnostic.location(),
             type="pss",
             subtype="parser",
+        )
+
+    # Step markers are checked across the whole model, once, whether or not a
+    # page asks for steps: a mistyped marker is a mistake wherever it is
+    # (programming-steps plan, decision D5).
+    for issue in lint_markers(index.model):
+        logger.warning(
+            issue.message,
+            location=issue.location(),
+            type="pss",
+            subtype=issue.code,
         )
 
     if not index.model.linked:

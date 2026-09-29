@@ -168,3 +168,37 @@ def test_no_sources_is_an_error_not_an_empty_index() -> None:
     """An empty API reference that reports success wastes the most time."""
     with pytest.raises(PssParseError, match="pss_source_dirs"):
         build_index()
+
+
+# --- linker resolution (U-3) ------------------------------------------------
+
+AMBIGUOUS = """\
+package a { struct Cfg { int x; } buffer Buf { } }
+package c { struct Cfg { int w; } buffer Buf { } }
+package b {
+    import a::*;
+    struct User : Cfg {
+        Cfg cfg;
+    }
+    component K {
+        action X { input Buf in_b; }
+    }
+}
+"""
+
+
+def test_a_name_seen_through_an_import_resolves_to_the_linkers_answer(tmp_path) -> None:
+    """``Cfg`` is declared in two packages and visible in ``b`` only through
+    ``import a::*``. Resolving the written name alone cannot choose; the
+    linker already has, and its answer is used."""
+    from sphinx_pss.model.parse import parse_model
+
+    source = tmp_path / "ambiguous.pss"
+    source.write_text(AMBIGUOUS)
+    index = PssIndex(parse_model([str(source)]))
+
+    assert index.get("b::User").extends == "a::Cfg"
+    assert index.get("b::User::cfg").type_ref == "a::Cfg"
+    assert index.written_type_ref["b::User::cfg"] == "Cfg", "display keeps the source"
+    [flow_in] = index.get("b::K::X").flow.inputs
+    assert flow_in.qualname == "a::Buf"

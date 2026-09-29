@@ -1,0 +1,78 @@
+// Programming-step fixture (programming-steps plan, S0 onwards).
+//
+// A small MAC driver written the way the design's examples are: register
+// helpers, an init sequence marked with `/// Step:` comments, a callee with
+// steps of its own, and a component whose exec blocks carry markers too --
+// one of them contributed by an `extend`. Plain `//` comments sit alongside,
+// including one that looks like a marker and must never be read as one.
+
+package mac_pkg {
+
+    /// Write a MAC register.
+    function void write_reg(bit[32] offset, bit[32] value);
+
+    /// Read a MAC register.
+    function bit[32] read_reg(bit[32] offset);
+
+    /// Initialize the MII management interface.
+    function void init_miim(bool rmii) {
+        /// Step: Select the interface mode
+        if (rmii) {
+            write_reg(0x10, 1);
+        } else {
+            write_reg(0x10, 0);
+        }
+        /// Step: Set the MDC clock divider
+        write_reg(0x14, 40);
+    }
+
+    /// Bring the MAC out of reset and configure it.
+    function void init_mac(bool rmii) {
+        bit[32] status = 0;
+
+        /// Step: Reset the MAC
+        write_reg(0x0, 0x8000);
+
+        /// Step: Wait for the reset to complete
+        /// SOFTRESET self-clears once the MAC's clock domains are back.
+        while ((read_reg(0x0) & 0x8000) != 0) { }
+
+        /// Step: Initialize the MIIM interface
+        init_miim(rmii); // init_miim's own steps nest under this one
+
+        /** Step: Enable the receiver
+         *  Done last, so no frame arrives half-configured.
+         */
+        write_reg(0x4, 0x1);
+
+        // Step: a plain comment, which is never a marker
+        status = read_reg(0x8);
+    }
+
+    component mac_c {
+        /// Soft-reset the MAC without reconfiguring it.
+        function void soft_reset() {
+            /// Step: Assert soft reset
+            write_reg(0x0, 0x8000);
+        }
+
+        exec init_down {
+            /// Step: Initialize the MAC
+            init_mac(false);
+        }
+
+        action reset_a {
+            exec body {
+                /// Step: Reset through the component
+                comp.soft_reset();
+            }
+        }
+    }
+
+    extend component mac_c {
+        exec init_down {
+            /// Step: Report that the MAC is up
+            write_reg(0xC, 1);
+        }
+    }
+}

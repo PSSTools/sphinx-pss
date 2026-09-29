@@ -13,6 +13,25 @@ no general-purpose documentation tool can produce — flow-object producer /
 consumer relationships, activity graphs, component instance trees, and `extend`
 provenance.
 
+## Programming steps
+
+A `/// Step: <title>` comment in a function body or `exec` block marks a step
+of a device-programming procedure. `pss:steps` renders the steps as a numbered
+table, the way a vendor programming guide lists them. Conditions and loops
+appear as rows, and a called function's steps nest under the step that calls
+it. Numbers are generated, in decimal (1, 1.1) or outline (1, a), i.) style.
+`:format: flowchart` draws the same steps as a flowchart, with Graphviz or
+Mermaid. For a codebase that already writes `// Step: …`, an opt-in
+`pssparser` checker (`SPSS001`) lists the comments to convert.
+
+```rst
+.. pss:steps:: eth_pkg::init_eth
+   :numbering: outline
+   :format: both
+```
+
+See `docs/usage/steps.md` and `docs/usage/diagrams.md`.
+
 ## Status
 
 Early development. See `design/` for the design and the phased
@@ -22,8 +41,9 @@ implementation plan.
 
 - Python 3.10+
 - Sphinx 8+
-- `pssparser` 3.0.3 or later (a C++/Cython extension — it must be built, not
-  merely downloaded)
+- `pssparser` 3.1.0 or later, a PSS 3.1 parser (a C++/Cython extension —
+  prebuilt wheels are published for common platforms; otherwise it must be
+  built)
 - [`pygments-pss`](https://git.dvkit.org/psstools/pygments-pss.git), installed
   automatically — it provides the `pss` Pygments lexer
 

@@ -349,6 +349,7 @@ LEADING_KEYWORDS = frozenset(KIND_LABELS) | {
     "rand",
     "static",
     "const",
+    "import",
     "pure",
     "target",
     "solve",

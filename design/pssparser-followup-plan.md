@@ -369,6 +369,22 @@ Ordered by what unblocks what, not by size.
 
 Step 7 is the only urgent item and is entirely within this repository. **Interim:** the `pyproject.toml` and `_version_floor.py` numbers have been lowered to `3.0.3` so the extension loads against the current clone; that is a stopgap that the probe replaces, not an alternative to it.
 
+**Status (2026-09-28).** Step 7 is **done**: `_version_floor.py` is replaced by `_capability.py`, run at first parse. It became mandatory rather than merely right once `pssparser` moved to tag-only versioning — a source tree now reports `0.0.0`, which no floor admits. For the same reason CI installs `sphinx-pss` with `--no-deps`: resolving the `pyproject.toml` floor against a source-built `0.0.0` parser silently replaced it with a PyPI release. Against `pssparser` `v3.1.7-2-g1ec757b`, `U-1` through `U-6` all reproduce as **fixed** upstream.
+
+**Status (2026-09-28, later).** Step 8's workarounds are **retired**, each fix pinned by a `U-*` guard in `tests/test_upstream_guards.py`:
+
+| Fix | Removed or changed |
+|---|---|
+| `U-1` | `ParsedModel.declaration_at`, the declaration index and `_doc_for`; every doc comment is `getDocstring()` on the node the builder visits |
+| `U-2` | `EnumItem` out of `UNLOCATED_NODE_TYPES` (`FunctionParamDecl` stays: parameters are still unlocated); enum values now carry a location |
+| `U-3` | `PssObject.type_target` / `extends_target` follow the `SymbolRefPath` when every step is a child index; the index prefers them, and name-based `resolve` remains the fallback. Across the corpus this changed 7 references, all previously unlinked (package aliases, and names ambiguous except through an import) |
+| `U-4` | `_build_function_scope` reads the prototype from `getPrototypes()` when there is no definition, which fixed `import` functions rendering as `void f()`; degraded mode now documents prototype-only functions too |
+| `U-5` | `_degraded_model`, its re-parse, and the `_files` / `_filenames` reads; a failed link's `user_units()` is walked directly |
+
+**`pyproject.toml` constraint (step 8).** Set to `pssparser>=3.1.0` — a PSS 3.1 parser, as a floor. Checked by running the full suite in a clean venv against each published wheel: 3.1.0, 3.1.1, 3.1.2, 3.1.3, 3.1.6 and 3.1.7 all pass (325 tests), as does 3.0.6; 3.0.2 fails every parse through the capability probe with its intended message. So the 3.1 floor states the targeted LRM revision rather than a capability, exactly as §2.1 says a version should.
+
+The removals were checked differentially: every object built from the fixture and from each parseable corpus file (98 units, 41 of them degraded) was compared before and after. No doc comment or location was lost; every difference was one of the fixes above.
+
 ---
 
 ## 7. Decisions needed

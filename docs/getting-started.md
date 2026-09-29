@@ -2,12 +2,15 @@
 
 ## Install
 
-`sphinx-pss` needs [`pssparser`](https://github.com/psstools/pssparser) 3.0.3 or
-later. That is a hard floor rather than a preference: earlier releases cannot
-extract doc comments from attributed fields such as `rand int len`, which are
-the most commonly documented elements in real PSS. The extension checks the
-version at import and fails with an explicit message rather than producing
-documentation with most of the prose silently missing.
+`sphinx-pss` needs [`pssparser`](https://github.com/psstools/pssparser) 3.1.0 or
+later — a parser targeting PSS 3.1.
+
+Separately, on its first parse the extension checks that the installed parser
+actually extracts a doc comment from an attributed field such as `rand int len`
+(the most commonly documented element in real PSS), and fails with an explicit
+message rather than producing documentation with most of the prose silently
+missing. That check tests the capability, not the version number, so a
+`pssparser` built from a source tree (which reports `0.0.0`) works too.
 
 `pssparser` is a C++/Cython extension, not a pure-Python wheel, so it has to be
 *built* rather than merely downloaded. If a prebuilt wheel exists for your
@@ -23,8 +26,8 @@ Otherwise build `pssparser` first, following its own README, and then install
 Verify the install:
 
 ```console
-$ python -c "from sphinx_pss._version_floor import check_pssparser_version as c; print(c())"
-3.0.3
+$ python -c "from sphinx_pss._capability import check_pssparser as c; print(c())"
+3.1.7
 ```
 
 Syntax highlighting for `pss` code blocks comes from

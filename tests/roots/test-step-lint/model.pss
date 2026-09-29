@@ -1,0 +1,18 @@
+package p {
+    function void w(int v);
+
+    /// Step: Misplaced, on a declaration
+    struct s {
+        int a;
+    }
+
+    function void f() {
+        /// step: a near miss
+        w(1);
+        /// Step:
+        w(2);
+        // Step: plain, never read
+        w(3);
+        /// Step: Nothing follows
+    }
+}

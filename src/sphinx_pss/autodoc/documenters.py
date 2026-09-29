@@ -35,7 +35,10 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING, Any, Iterable, Iterator
 
+from docutils.statemachine import StringList
+
 from ..docparse import ParsedDoc, parse_doc, validate
+from ..model.locations import match_lines
 from ..model.objects import PssObject
 
 if TYPE_CHECKING:
@@ -148,25 +151,40 @@ class PssDocumenter:
 
     # --- entry point -------------------------------------------------------
 
-    def document(self, obj: PssObject, indent: str = "") -> list[str]:
-        """Render ``obj`` as reStructuredText lines."""
-        lines: list[str] = []
+    def document(self, obj: PssObject, indent: str = "") -> StringList:
+        """Render ``obj`` as reStructuredText.
+
+        Every line carries its origin: text taken from a doc comment is
+        attributed to its line in the ``.pss`` file, so a reStructuredText
+        error in a comment is reported where the author can fix it, and
+        generated scaffolding to a pseudo-file named for the object.
+        """
+        out = StringList()
+        generated = f"<autopss:{obj.qualname}>"
+
+        def emit(text: str) -> None:
+            out.append(text, generated, len(out))
+
         doc = self._documentation(obj)
 
-        lines.append(f"{indent}.. pss:{obj.kind}:: {obj.signature}")
+        emit(f"{indent}.. pss:{obj.kind}:: {obj.signature}")
         for option in self._directive_options(obj):
-            lines.append(f"{indent}   {option}")
-        lines.append("")
+            emit(f"{indent}   {option}")
+        emit("")
 
         body_indent = indent + "   "
-        lines.extend(self._body(obj, doc, body_indent))
+        for text, line in self._body(obj, doc, body_indent):
+            if line is None or obj.doc_source is None:
+                emit(text)
+            else:
+                out.append(text, obj.doc_source.path, line - 1)
 
         if self.options.members:
             for member in self._members(obj):
-                lines.extend(self.document(member, body_indent))
+                out.extend(self.document(member, body_indent))
 
-        lines.append("")
-        return lines
+        emit("")
+        return out
 
     # --- pieces ------------------------------------------------------------
 
@@ -195,33 +213,62 @@ class PssDocumenter:
             options.append(":no-index:")
         return options
 
-    def _body(self, obj: PssObject, doc: ParsedDoc, indent: str) -> list[str]:
-        lines: list[str] = []
+    def _body(
+        self, obj: PssObject, doc: ParsedDoc, indent: str
+    ) -> list[tuple[str, int | None]]:
+        """The body lines, each with its source line in the ``.pss`` file.
 
+        A dialect is free to reshape the comment (split off the summary, lift
+        fields out, rewrite Doxygen commands), so rendered prose is matched back
+        to ``raw_doc`` by content rather than by position. A line with no match
+        is paired with ``None`` and reported against the generated text.
+        """
+        raw_lines = (obj.raw_doc or "").split("\n")
+
+        def sourced(block: list[str]) -> list[tuple[str, int | None]]:
+            if obj.doc_source is None:
+                return [(line, None) for line in block]
+            indices = match_lines(block, raw_lines)
+            return [
+                (line, None if i is None else obj.doc_source.line_of(i))
+                for line, i in zip(block, indices)
+            ]
+
+        lines: list[tuple[str, int | None]] = []
         if doc.summary:
-            lines.extend(_indent_block(doc.summary, indent))
-            lines.append("")
+            lines.extend(sourced(_indent_block(doc.summary, indent)))
+            lines.append(("", None))
         if doc.rst_body:
-            lines.extend(_indent_block(doc.rst_body, indent))
-            lines.append("")
+            lines.extend(sourced(_indent_block(doc.rst_body, indent)))
+            lines.append(("", None))
 
         field_lines = list(self._field_list(obj, doc))
         if field_lines:
-            lines.extend(f"{indent}{line}" for line in field_lines)
-            lines.append("")
+            for text, raw_line in field_lines:
+                line = None
+                if raw_line and obj.doc_source is not None:
+                    line = obj.doc_source.line_of(raw_line - 1)
+                lines.append((f"{indent}{text}", line))
+            lines.append(("", None))
 
         return lines
 
-    def _field_list(self, obj: PssObject, doc: ParsedDoc) -> Iterator[str]:
-        """Render documentation fields, plus provenance, as a field list."""
+    def _field_list(
+        self, obj: PssObject, doc: ParsedDoc
+    ) -> Iterator[tuple[str, int]]:
+        """Render documentation fields, plus provenance, as a field list.
+
+        Each entry is paired with the ``raw_doc`` line (1-based) it came from,
+        or 0 for a generated entry.
+        """
         for field in doc.fields:
             label = field.name if field.argument is None else f"{field.name} {field.argument}"
             body = " ".join(field.body.split()) if field.body else ""
-            yield f":{label}: {body}".rstrip()
+            yield f":{label}: {body}".rstrip(), field.line
 
         if self.options.show_extensions and obj.defined_in.is_extension:
             source = obj.defined_in.source
-            yield f":added by: an extension ({source})"
+            yield f":added by: an extension ({source})", 0
 
     def _members(self, obj: PssObject) -> list[PssObject]:
         """The members to render, filtered and ordered."""
@@ -276,7 +323,7 @@ def document_object(
     options: DocumenterOptions,
     *,
     events: Any = None,
-) -> tuple[list[str], list[tuple[PssObject, Any]]]:
+) -> tuple[StringList, list[tuple[PssObject, Any]]]:
     """Render ``obj``, returning its lines and any cross-validation issues."""
     documenter = PssDocumenter(index, options, events=events)
     return documenter.document(obj), documenter.issues

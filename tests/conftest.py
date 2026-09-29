@@ -4,7 +4,7 @@ Marker taxonomy (see design/implementation-plan.md, "Test taxonomy"):
 
 ``unit``      pure Python, no Sphinx application
 ``sphinx``    a real build over a ``tests/roots/`` mini-project
-``corpus``    slow runs over the pssparser corpus / PSS standard library, opt-in
+``corpus``    slow runs over pss-corpus, opt-in (see ``tests/corpus/conftest.py``)
 ``upstream``  asserts a pssparser behavior we depend on; a failure, not a skip
 """
 
@@ -70,3 +70,24 @@ def sample_index(sample_model):
     from sphinx_pss.model.index import PssIndex
 
     return PssIndex(sample_model)
+
+
+# --- comment collection -------------------------------------------------------
+
+
+@pytest.fixture
+def without_comment_collection(monkeypatch):
+    """Make `parse_model` parse as it did before ``collect_comments`` was on.
+
+    ``parse_model`` imports ``Parser`` from ``pssparser`` at call time, so
+    replacing the module attribute is enough.
+    """
+    import pssparser
+
+    real = pssparser.Parser
+
+    def parser(*args, **kwargs):
+        kwargs["collect_comments"] = False
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pssparser, "Parser", parser)

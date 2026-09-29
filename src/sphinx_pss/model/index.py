@@ -99,31 +99,50 @@ class PssIndex:
         """Rewrite each ``type_ref`` from the written name to a qualified name.
 
         Design section 8 specifies ``type_ref`` as resolved, which is what lets
-        a signature's type render as a link. Built-in types (``int``, ``bool``)
-        and anything outside the documented set simply do not resolve, and keep
-        their written form — the fallback a reader sees is the source text,
-        which is never wrong, only unlinked.
+        a signature's type render as a link. The linker's own resolution
+        (``type_target``) is used when it names an indexed object; otherwise
+        the written name is resolved lexically (`resolve`). Built-in types
+        (``int``, ``bool``) and anything outside the documented set simply do
+        not resolve, and keep their written form — the fallback a reader sees
+        is the source text, which is never wrong, only unlinked.
         """
         for root in self.roots:
             self._resolve_in(root, scope=root.qualname)
 
+    def _resolve_ref(self, written: str, target: str | None, scope: str) -> str | None:
+        """Qualified name for one reference: the linker's, else by name."""
+        if target is not None and target in self._by_qualname:
+            return target
+        return self.resolve_qualname(written, scope=scope)
+
     def _resolve_in(self, obj: PssObject, scope: str) -> None:
         for child in obj.children:
             if child.type_ref:
-                resolved = self.resolve_qualname(child.type_ref, scope=scope)
+                resolved = self._resolve_ref(child.type_ref, child.type_target, scope)
                 if resolved is not None:
                     child.type_ref = resolved
             if child.extends:
-                resolved = self.resolve_qualname(child.extends, scope=scope)
+                resolved = self._resolve_ref(child.extends, child.extends_target, scope)
                 if resolved is not None:
                     child.extends = resolved
-            if child.flow is not None:
-                self._resolve_flow(child.flow, scope=scope)
             self._resolve_in(child, scope=child.qualname)
+            if child.flow is not None:
+                self._resolve_flow(child, scope=scope)
 
-    def _resolve_flow(self, flow, scope: str) -> None:
+    def _resolve_flow(self, action: PssObject, scope: str) -> None:
+        """Qualify an action's flow entries from its already-resolved members.
+
+        Runs after the action's members, so each entry takes whatever its
+        member resolved to, the linker's answer included.
+        """
+        members = {m.name: m for m in action.children}
+        flow = action.flow
         for entry in (*flow.inputs, *flow.outputs, *flow.locks, *flow.shares):
-            resolved = self.resolve_qualname(entry.type_name, scope=scope)
+            member = members.get(entry.name)
+            if member is not None and member.type_ref in self._by_qualname:
+                resolved = member.type_ref
+            else:
+                resolved = self.resolve_qualname(entry.type_name, scope=scope)
             if resolved is not None:
                 object.__setattr__(entry, "qualname", resolved)
 
@@ -170,10 +189,9 @@ class PssIndex:
         considered — and that last step is skipped when it would be ambiguous,
         so a caller can report candidates instead of guessing.
 
-        This exists because a type reference cannot be resolved through the
-        parser: ``TypeIdentifier.getTarget()`` returns a ``SymbolRefPath`` that
-        exposes only an index to Python (finding ``U-3``). Resolving against
-        the index is the design's model regardless (``PssObject.type_ref``).
+        Used for reference-role text, which has no parser resolution, and for
+        a model reference whose linker resolution is not a plain path to an
+        indexed object (``PssObject.type_target``).
         """
         if not name:
             return None

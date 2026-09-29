@@ -1,0 +1,6 @@
+package p {
+    function void f() {
+        /// Step: Write through an undeclared type
+        undeclared_t x;
+    }
+}

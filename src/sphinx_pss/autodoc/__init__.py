@@ -41,10 +41,14 @@ __all__ = [
 
 
 def setup(app) -> None:
+    from . import diagrams as _diagrams
     from . import directives as _directives
     from . import documenters as _documenters
+    from . import steps as _steps
 
     # Events first: directives fire them, so they must exist before a build
     # can reach one.
     _documenters.setup(app)
     _directives.setup(app)
+    _steps.setup(app)
+    _diagrams.setup(app)

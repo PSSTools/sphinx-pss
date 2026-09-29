@@ -1,0 +1,14 @@
+// Programming-step fixture: the first of two extensions to eth_c::send_a.
+// Its `exec body` follows the declaration's, and precedes eth_ext_b.pss's
+// when the files are given in that order (steps design 4.5).
+
+package eth_ext_a {
+    import eth_pkg::*;
+
+    extend action eth_c::send_a {
+        exec body {
+            /// Step: Start transmission
+            set_bits(0x000, 0x0200);   // ETHCON1.TXRTS
+        }
+    }
+}

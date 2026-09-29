@@ -18,3 +18,15 @@
 """``[source]`` links and generated PSS source listings (Phase 3)."""
 
 from __future__ import annotations
+
+from typing import Any
+
+
+def source_link(env: Any, ref: Any, text: str) -> Any:
+    """A link to ``ref``'s line in the rendered listing, or ``None``.
+
+    The hook step tables use for their Source column (programming-steps plan
+    ``S3-IMPL-5``). Always ``None`` until the listings exist (``P3-IMPL-4``),
+    and the caller then shows ``text`` as plain ``file:line``.
+    """
+    return None

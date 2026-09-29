@@ -1,0 +1,20 @@
+package p {
+    function void w(int v);
+    function void helper() { w(0); }
+
+    function void f() {
+        helper();
+        /// Step: Reset ``the block
+        w(1);
+        /// Step: Configure
+        /// The divider is *40.
+        ///
+        /// See `the manual`_.
+        w(2);
+    }
+
+    function void g() {
+        /// step: not a marker
+        w(3);
+    }
+}
