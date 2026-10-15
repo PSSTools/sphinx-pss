@@ -85,9 +85,28 @@ jobs:
         . .venv/bin/activate
         python -m sphinx -W -b html docs docs/_build/html
 
+    - name: Sanity-check the documentation build
+      # This artifact publishes to dvkit.org/psstools/sphinx-pss/ with no
+      # review in between: the host-side pipeline auto-promotes main. Sphinx
+      # exits 0 on a build that produced almost nothing, so these checks stand
+      # where a review would. A local build on 2026-10-15 produced 11 pages and
+      # 6 diagram images; the floors catch a collapsed build, not a deleted page.
+      run: |
+        test -s docs/_build/html/index.html \
+          || { echo "::error::no index.html in the build output"; exit 1; }
+        n=$(find docs/_build/html -name '*.html' | wc -l)
+        echo "generated pages: $n"
+        [ "$n" -ge 8 ] || { echo "::error::only $n pages built; a known-good build produces 11"; exit 1; }
+        i=$(find docs/_build/html/_images -type f 2>/dev/null | wc -l)
+        echo "diagram images: $i"
+        [ "$i" -ge 1 ] || { echo "::error::no diagram images; Graphviz output is missing"; exit 1; }
+
     - name: Upload documentation
+      # The name is the docs-<org>-<repo> contract the dvkit.org pipeline
+      # matches on (docs-fetch psstools/sphinx-pss main); any other name is
+      # built and then ignored. path ending in /** makes the HTML the ZIP root.
       uses: forgejo/upload-artifact@v4
       with:
-        name: docs-sphinx-pss
+        name: docs-psstools-sphinx-pss
         path: docs/_build/html/**
         if-no-files-found: error

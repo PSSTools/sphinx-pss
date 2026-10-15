@@ -67,12 +67,11 @@ mermaid = [
 sphinx-pss = "sphinx_pss.checkers"
 
 [project.urls]
-# Deliberately only a Homepage, and not a repository link: this project lives
-# on git.dvkit.org, which serves git clones rather than browsable pages, and
-# github.com/psstools/sphinx-pss does not exist. A released version's metadata
-# can never be edited, so a dead link here would be permanent. Add a Source
-# URL when there is a public mirror to point at. (pygments-pss made the same
-# call; pssparser publishes with no project URLs at all.)
+# A released version's metadata can never be edited, so every link here must
+# be one that stays live: dvkit.org publishes the docs, and GitHub is the
+# public mirror of git.dvkit.org (which serves clones, not browsable pages).
+Documentation = "https://dvkit.org/psstools/sphinx-pss/"
+Source = "https://github.com/psstools/sphinx-pss"
 Homepage = "https://accellera.org/downloads/standards/portable-stimulus"
 
 [tool.setuptools.dynamic]

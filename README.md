@@ -8,6 +8,8 @@ declarations and doc comments are pulled directly from PSS source via
 [`pssparser`](https://github.com/psstools/pssparser), and rendered through a
 custom `pss` Sphinx domain.
 
+**Documentation:** <https://dvkit.org/psstools/sphinx-pss/>
+
 Beyond declarations, it renders the structure that is specific to PSS and that
 no general-purpose documentation tool can produce — flow-object producer /
 consumer relationships, activity graphs, component instance trees, and `extend`
