@@ -14,7 +14,7 @@ from sphinx_pss.model.calls import function_body, symbol_index
 from sphinx_pss.model.comments import comments_of
 from sphinx_pss.model.parse import iter_children, parse_model
 from sphinx_pss.model.steps_lint import _sub_blocks
-from support import geometric_comments
+from support import geometric_comments, parser_comments_activities
 
 pytestmark = pytest.mark.unit
 
@@ -65,10 +65,13 @@ def test_it_attaches_what_the_parser_attaches(tmp_path) -> None:
         nonlocal compared
         ours = _key(statement_comments(node))
         loc = node.getLocation() if hasattr(node, "getLocation") else None
-        if loc is not None and loc.lineno == 21:
-            # The parser loses a trailing comment after `} while (b);`
-            # (pssparser AC5, guarded in test_upstream_activity.py): the
-            # stand-in keeps it, as the request asks.
+        lost = not parser_comments_activities() or type(node).__name__ == "ExecScope"
+        if loc is not None and loc.lineno == 21 and lost:
+            # The trailing comment after `} while (b);`. A pssparser before
+            # 3.3.0 loses it (AC5, guarded in test_upstream_activity.py), and
+            # the stand-in keeps it, as the request asks. From 3.3.0 the parser
+            # attaches it to the statement only, while the stand-in also gives
+            # it to the loop's body, which starts on the same line.
             assert ours == [("/// after a do-while", 23, 1)]
             ours = []
         assert ours == _key(comments_of(node)), node
@@ -78,5 +81,6 @@ def test_it_attaches_what_the_parser_attaches(tmp_path) -> None:
 
     for stmt in iter_children(body):
         walk(stmt)
-    # Every commented statement above was compared, not skipped.
-    assert compared == 7
+    # Every commented statement above was compared, not skipped: from 3.3.0
+    # the do-while is one of them.
+    assert compared == (8 if parser_comments_activities() else 7)

@@ -14,7 +14,7 @@ import pytest
 from docutils import nodes
 from sphinx.util.console import strip_colors
 
-from support import geometric_comments
+from support import geometric_comments, needs_parser_without_activity_comments
 
 X = "sxfer_pkg::dma_c::xfer"
 
@@ -69,6 +69,7 @@ def test_the_outline_shows_the_steps(app, with_comments, warning) -> None:
     assert _messages(warning) == []
 
 
+@needs_parser_without_activity_comments
 @pytest.mark.sphinx("html", testroot="activity-steps", freshenv=True)
 def test_without_the_parser_the_build_says_why_once(app, warning) -> None:
     app.build()

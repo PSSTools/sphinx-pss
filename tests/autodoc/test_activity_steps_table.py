@@ -14,7 +14,7 @@ import pytest
 from docutils import nodes
 from sphinx.util.console import strip_colors
 
-from support import geometric_comments
+from support import geometric_comments, needs_parser_without_activity_comments
 
 
 def _messages(warning) -> list[tuple[str, int, str]]:
@@ -82,6 +82,7 @@ def test_the_boundary_row_links_to_the_action(app, with_comments) -> None:
     assert 'href="#pss-sxfer_pkg.dma_c.configure"' in row
 
 
+@needs_parser_without_activity_comments
 @pytest.mark.sphinx("html", testroot="activity-steps", freshenv=True)
 def test_without_the_parser_the_table_says_why(app, warning) -> None:
     app.build()

@@ -12,6 +12,7 @@ failure here says "the parser changed" rather than "our wrapper changed".
 from __future__ import annotations
 
 import pytest
+from support import parser_comments_activities
 
 pytestmark = pytest.mark.upstream
 
@@ -64,44 +65,58 @@ def activity(top):
     return next(c for c in _children(top) if type(c).__name__ == "ActivityDecl")
 
 
-def test_ac1_activity_statements_carry_no_comments_yet(activity) -> None:
-    """Design 4.7: steps in activities wait for pssparser AC1-AC3.
+def test_ac1_activity_statements_carry_comments_from_3_3_0(activity) -> None:
+    """Design 4.7: steps in activities need pssparser AC1-AC3, released in 3.3.0.
 
-    WHEN THIS FAILS, pssparser has started attaching comments in activities.
-    Delete ``geometric_comments`` from ``tests/support.py`` and run the
-    activity-steps tests against the parser's own comments (plan decision D4).
-    Also delete the token-scan fallback and ``pss.step_unsupported`` once the
-    released pssparser has it.
+    Before 3.3.0 no activity statement carries a comment. The token-scan
+    fallback, ``pss.step_unsupported`` and ``geometric_comments`` in
+    ``tests/support.py`` stay while the floor is ``pssparser>=3.1.0``; they can
+    go when the floor reaches 3.3.0 (plan decision D4).
     """
     stmts = _children(activity)
-    assert all(s.numComments() == 0 for s in stmts)
-    assert activity.numTrailing_comments() == 0
+    if parser_comments_activities():
+        assert stmts[0].numComments() == 1
+        assert activity.numTrailing_comments() == 1
+    else:
+        assert all(s.numComments() == 0 for s in stmts)
+        assert activity.numTrailing_comments() == 0
 
 
-def test_ac1_the_capability_probe_agrees() -> None:
-    """Design 4.7: the run-time probe decides whether steps are read in activities."""
+def test_ac1_the_capability_probe_agrees(activity) -> None:
+    """Design 4.7: the run-time probe decides whether steps are read in activities.
+
+    Checked against the parse above rather than a constant, so the probe can't
+    drift from what the parser actually does.
+    """
     from sphinx_pss._capability import activity_comments_supported
 
-    assert activity_comments_supported() is False
+    assert activity_comments_supported() is (_children(activity)[0].numComments() > 0)
 
 
 def test_r1_the_atomic_body_is_unlocated(activity) -> None:
     """Design 2, R1: the atomic body must not be dropped as compiler-injected.
 
-    WHEN THIS FAILS, pssparser locates the body: the span fallback for
-    ``atomic`` in ``model/activity.py`` can go.
+    pssparser 3.3.0 locates the body and the block's end. The span fallback
+    for ``atomic`` in ``model/activity.py`` can go when the floor reaches 3.3.0.
     """
     atomic = next(s for s in _children(activity) if type(s).__name__ == "ActivityAtomicBlock")
     assert atomic.getLocation().lineno == 9
-    assert atomic.getEndLocation().lineno == -1
-    assert atomic.getBody().getLocation().lineno == -1
+    if parser_comments_activities():
+        assert atomic.getEndLocation().lineno == 12
+        assert atomic.getBody().getLocation().lineno == 9
+    else:
+        assert atomic.getEndLocation().lineno == -1
+        assert atomic.getBody().getLocation().lineno == -1
 
 
 def test_r2_a_bind_has_no_end_location(activity) -> None:
-    """Design 2, R2: nothing needs a bind's end, so there is no fallback to remove."""
+    """Design 2, R2: nothing needs a bind's end, so there is no fallback to remove.
+
+    pssparser 3.3.0 records it.
+    """
     bind = next(s for s in _children(activity) if type(s).__name__ == "ActivityBindStmt")
     assert bind.getLocation().lineno == 13
-    assert bind.getEndLocation().lineno == -1
+    assert bind.getEndLocation().lineno == (14 if parser_comments_activities() else -1)
 
 
 def test_labels_are_listed_in_the_action_scope(top) -> None:
@@ -122,12 +137,12 @@ def test_do_on_a_field_is_a_type_traversal_resolving_to_the_field(activity) -> N
     assert target is not None
 
 
-def test_ac5_a_trailing_comment_after_a_do_while_is_lost() -> None:
+def test_ac5_a_trailing_comment_after_a_do_while() -> None:
     """pssparser AC5 (``sphinx-pss-requests-2026-09-29.md``): the comment reaches no node.
 
     Procedural code, but the same rule will apply to ``repeat { } while (c);``
-    in activities. WHEN THIS FAILS, remove the exception for it in
-    ``tests/model/test_geometric_comments.py``.
+    in activities. Fixed in pssparser 3.3.0; the exception for it in
+    ``tests/model/test_geometric_comments.py`` applies only before that.
     """
     from pssparser import Parser
     from pssparser.utils import SymbolScopeUtil
@@ -153,6 +168,9 @@ def test_ac5_a_trailing_comment_after_a_do_while_is_lost() -> None:
     body = SymbolScopeUtil(root).getQname("p::f").getBody()
     stmt = body.getChild(0)
 
+    if parser_comments_activities():
+        assert stmt.numComments() == 1
+        return
     assert stmt.numComments() == 0
     assert body.numTrailing_comments() == 0
     assert all(stmt.getBody().getChild(i).numComments() == 0 for i in range(len(stmt.getBody().getChildren())))

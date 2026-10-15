@@ -8,6 +8,30 @@ from __future__ import annotations
 
 import dataclasses
 
+import pytest
+
+
+def parser_comments_activities() -> bool:
+    """True when the installed pssparser attaches comments in activities.
+
+    pssparser 3.3.0 shipped the sphinx-pss requests AC1-AC5, R1 and R2
+    together, so this one probe also tells the upstream guards which side of
+    all of them the parser is on. The fallbacks they guard stay while the floor
+    is ``pssparser>=3.1.0``.
+    """
+    from sphinx_pss._capability import activity_comments_supported
+
+    return activity_comments_supported()
+
+
+#: For a test of the fallback an older pssparser needs. A capable parser reads
+#: the markers itself, so there is nothing to fall back from; the tests still
+#: run wherever the floor's parser is installed (the ivpm development set).
+needs_parser_without_activity_comments = pytest.mark.skipif(
+    parser_comments_activities(),
+    reason="pssparser attaches comments to activity statements; this tests the fallback for older ones",
+)
+
 
 def model_snapshot(index) -> list[dict]:
     """Everything the object model says about a parse, as plain data.

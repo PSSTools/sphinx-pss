@@ -13,7 +13,7 @@ import pytest
 from sphinx_pss.model.activity import activity_for
 from sphinx_pss.model.activity_steps import has_steps, stepped, unread_marker
 from sphinx_pss.model.parse import parse_model
-from support import activity_outline, use_geometric_comments
+from support import activity_outline, needs_parser_without_activity_comments, use_geometric_comments
 
 pytestmark = pytest.mark.unit
 
@@ -235,6 +235,7 @@ def test_numbering_continues_across_blocks(tmp_path, monkeypatch) -> None:
     ]
 
 
+@needs_parser_without_activity_comments
 def test_without_the_parser_the_markers_are_unread_but_found(steps) -> None:
     """Design 4.7: until pssparser AC1, the source text still shows the markers are there."""
     activity, model = steps("      x;\n      /** Step: Hidden */\n      y;\n", geometric=False)
@@ -284,6 +285,7 @@ def test_the_lint_reads_activity_statements(tmp_path, monkeypatch) -> None:
     ]
 
 
+@needs_parser_without_activity_comments
 def test_the_lint_is_silent_on_activities_the_parser_hasnt_commented(tmp_path) -> None:
     from sphinx_pss.model.steps_lint import lint_markers
 

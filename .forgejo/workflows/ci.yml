@@ -89,8 +89,8 @@ jobs:
       # This artifact publishes to dvkit.org/psstools/sphinx-pss/ with no
       # review in between: the host-side pipeline auto-promotes main. Sphinx
       # exits 0 on a build that produced almost nothing, so these checks stand
-      # where a review would. A local build on 2026-10-15 produced 11 pages and
-      # 6 diagram images; the floors catch a collapsed build, not a deleted page.
+      # where a review would. A build on 2026-10-15 produced 11 pages and 7
+      # diagram images (6 with a pssparser before 3.3.0); the floors catch a collapsed build, not a deleted page.
       run: |
         test -s docs/_build/html/index.html \
           || { echo "::error::no index.html in the build output"; exit 1; }
